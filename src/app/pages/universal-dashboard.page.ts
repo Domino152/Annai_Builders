@@ -9,7 +9,7 @@ import { formatMoney, formatNumber, statusClass } from "../shared/format";
 
 type DashboardModule = "materials" | "clients" | "labour" | "expenses" | "payments" | "vendors" | "reports";
 type FieldType = "text" | "number" | "date";
-type TableRow = Record<string, string | number>;
+type TableRow = Record<string, string | number | undefined>;
 type FieldSchema = { key: string; label: string; type?: FieldType };
 type FilterSchema = { key: string; label: string };
 type ModuleConfig = {
@@ -200,17 +200,17 @@ const dashboardModules: ModuleConfig[] = [
 
         <ion-content class="erp-page">
           <main class="workspace-shell">
-            <section class="dashboard-command-strip">
-              <div>
-                <span>Universal Operations</span>
-                <h1>Central Dashboard</h1>
-                <p>All clients, projects, material, labour, expenses, payments, vendors, and reports in one table-first workspace.</p>
+            <section class="dashboard-command-strip dashboard-command-center">
+              <div class="dashboard-command-copy">
+                <span>Company Command Center</span>
+                <h1>Primary Dashboard</h1>
+                <p>Universal records for clients, material, labour, expenses, payments, vendors, and reports.</p>
               </div>
-              <div class="dashboard-kpi-strip">
-                <div><span>Clients</span><strong>{{ data.clients().length }}</strong></div>
-                <div><span>Projects</span><strong>{{ data.projects().length }}</strong></div>
-                <div><span>Materials</span><strong>{{ data.materials().length }}</strong></div>
+              <div class="dashboard-kpi-strip dashboard-kpi-board">
+                <div><span>Project Value</span><strong>{{ formatMoney(totalProjectValue()) }}</strong></div>
                 <div><span>Payments</span><strong>{{ formatMoney(totalReceived()) }}</strong></div>
+                <div><span>Pending</span><strong>{{ formatMoney(totalPending()) }}</strong></div>
+                <div><span>Active Clients</span><strong>{{ data.activeClients() }}</strong></div>
               </div>
             </section>
 
@@ -222,7 +222,8 @@ const dashboardModules: ModuleConfig[] = [
                   [class.active]="activeModule() === module.key"
                   (click)="switchModule(module.key)"
                 >
-                  {{ module.label }}
+                  <span>{{ module.label }}</span>
+                  <small>{{ rowCountFor(module.key) }}</small>
                 </button>
               </nav>
 
@@ -259,8 +260,8 @@ const dashboardModules: ModuleConfig[] = [
               <div class="table-meta-strip">
                 <span>{{ visibleRows().length }} rows</span>
                 <span>{{ columnsForActive().length }} fields</span>
-                <span>{{ activeConfig().filters.length }} filters</span>
-                <span>Inline editable cells</span>
+                <span>{{ selectedFilterCount() }} active filters</span>
+                <span *ngIf="activeModule() === 'clients'">Customer records synced</span>
               </div>
 
               <div class="table-wrap operations-table universal-table">
@@ -275,9 +276,10 @@ const dashboardModules: ModuleConfig[] = [
                     <tr *ngFor="let row of visibleRows(); let rowIndex = index">
                       <td
                         *ngFor="let column of columnsForActive()"
-                        contenteditable="true"
+                        [attr.contenteditable]="isReadonlyColumn(column.key) ? null : 'true'"
+                        [class.readonly-cell]="isReadonlyColumn(column.key)"
                         spellcheck="false"
-                        (blur)="updateCell(rowIndex, column.key, $any($event.target).textContent || '')"
+                        (blur)="!isReadonlyColumn(column.key) && updateCell(rowIndex, column.key, $any($event.target).textContent || '')"
                       >
                         {{ row[column.key] }}
                       </td>
@@ -354,7 +356,7 @@ export class UniversalDashboardPage {
   readonly modules = dashboardModules;
   readonly formatMoney = formatMoney;
   readonly statusClass = statusClass;
-  readonly activeModule = signal<DashboardModule>("materials");
+  readonly activeModule = signal<DashboardModule>("clients");
   readonly searchText = signal("");
   readonly selectedFilters = signal<Record<string, string>>({});
   readonly recordDialogOpen = signal(false);
@@ -362,11 +364,21 @@ export class UniversalDashboardPage {
   readonly draftRow = signal<TableRow>({});
   readonly newFieldLabel = signal("");
   readonly customColumns = signal<Record<DashboardModule, FieldSchema[]>>(this.emptyColumnMap());
-  readonly tableRows = signal<Record<DashboardModule, TableRow[]>>(this.buildRows());
+  readonly customRows = signal<Record<DashboardModule, TableRow[]>>(this.emptyRowMap());
+  readonly rowEdits = signal<Record<string, TableRow>>({});
+  readonly hiddenRowIds = signal<string[]>([]);
   readonly activeConfig = computed(() => dashboardModules.find((module) => module.key === this.activeModule()) ?? dashboardModules[0]);
+
+  totalProjectValue() {
+    return this.data.projects().reduce((sum, project) => sum + project.totalValue, 0);
+  }
 
   totalReceived() {
     return this.data.projects().reduce((sum, project) => sum + project.receivedAmount, 0);
+  }
+
+  totalPending() {
+    return this.totalProjectValue() - this.totalReceived();
   }
 
   switchModule(module: DashboardModule) {
@@ -383,7 +395,7 @@ export class UniversalDashboardPage {
   visibleRows(): TableRow[] {
     const query = this.searchText().trim().toLowerCase();
     const filters = this.selectedFilters();
-    return this.tableRows()[this.activeModule()].filter((row) => {
+    return this.rowsFor(this.activeModule()).filter((row) => {
       const matchesSearch = !query || Object.values(row).some((value) => String(value).toLowerCase().includes(query));
       const matchesFilters = Object.entries(filters).every(([key, value]) => !value || String(row[key]) === value);
       return matchesSearch && matchesFilters;
@@ -392,11 +404,23 @@ export class UniversalDashboardPage {
 
   filterValues(key: string): string[] {
     const values = new Set<string>();
-    for (const row of this.tableRows()[this.activeModule()]) {
+    for (const row of this.rowsFor(this.activeModule())) {
       const value = row[key];
       if (value !== undefined && value !== "") values.add(String(value));
     }
     return [...values].sort((a, b) => a.localeCompare(b));
+  }
+
+  rowCountFor(module: DashboardModule): number {
+    return this.rowsFor(module).length;
+  }
+
+  selectedFilterCount(): number {
+    return Object.values(this.selectedFilters()).filter(Boolean).length;
+  }
+
+  isReadonlyColumn(key: string): boolean {
+    return key === "clientId" || key === "vendorId";
   }
 
   setFilter(key: string, value: string) {
@@ -422,7 +446,22 @@ export class UniversalDashboardPage {
   saveRecord(event: Event) {
     event.preventDefault();
     const module = this.activeModule();
-    this.tableRows.update((rows) => ({ ...rows, [module]: [{ ...this.draftRow() }, ...rows[module]] }));
+    const row = { ...this.draftRow() };
+    if (module === "clients") {
+      const client = this.data.addClient({
+        name: String(row["clientName"] || "New Client").trim(),
+        mobile: String(row["mobile"] || "").trim(),
+        address: String(row["address"] || "").trim(),
+        supervisor: String(row["supervisor"] || "Unassigned").trim(),
+      });
+      const status = this.normalizeClientStatus(String(row["status"] || ""));
+      if (status !== "Active") this.data.updateClient(client.id, { status });
+    } else {
+      this.customRows.update((rows) => ({
+        ...rows,
+        [module]: [{ ...row, __rowId: `custom:${module}:${Date.now()}` }, ...rows[module]],
+      }));
+    }
     this.recordDialogOpen.set(false);
   }
 
@@ -438,7 +477,6 @@ export class UniversalDashboardPage {
     const module = this.activeModule();
     const key = this.fieldKey(label, this.columnsForActive());
     this.customColumns.update((columns) => ({ ...columns, [module]: [...columns[module], { key, label }] }));
-    this.tableRows.update((rows) => ({ ...rows, [module]: rows[module].map((row) => ({ ...row, [key]: "" })) }));
     this.fieldDialogOpen.set(false);
   }
 
@@ -446,20 +484,49 @@ export class UniversalDashboardPage {
     const target = this.visibleRows()[visibleIndex];
     if (!target) return;
     const module = this.activeModule();
-    this.tableRows.update((rows) => ({
-      ...rows,
-      [module]: rows[module].map((row) => (row === target ? { ...row, [key]: value.trim() } : row)),
+    const trimmedValue = value.trim();
+
+    if (module === "clients") {
+      this.updateClientCell(target, key, trimmedValue);
+    }
+
+    const rowId = String(target["__rowId"] || "");
+    if (!rowId) return;
+    this.rowEdits.update((edits) => ({
+      ...edits,
+      [rowId]: { ...(edits[rowId] ?? {}), [key]: trimmedValue },
     }));
   }
 
   duplicateRow(row: TableRow) {
     const module = this.activeModule();
-    this.tableRows.update((rows) => ({ ...rows, [module]: [{ ...row }, ...rows[module]] }));
+    if (module === "clients") {
+      const client = this.data.addClient({
+        name: `${String(row["clientName"] || "Client")} Copy`,
+        mobile: String(row["mobile"] || ""),
+        address: String(row["address"] || ""),
+        supervisor: String(row["supervisor"] || "Unassigned"),
+      });
+      this.data.updateClient(client.id, { status: this.normalizeClientStatus(String(row["status"] || "")) });
+      return;
+    }
+
+    this.customRows.update((rows) => ({
+      ...rows,
+      [module]: [{ ...row, __rowId: `custom:${module}:${Date.now()}` }, ...rows[module]],
+    }));
   }
 
   deleteRow(row: TableRow) {
     const module = this.activeModule();
-    this.tableRows.update((rows) => ({ ...rows, [module]: rows[module].filter((existingRow) => existingRow !== row) }));
+    const rowId = String(row["__rowId"] || "");
+    if (module === "clients") {
+      this.data.deleteClient(String(row["clientId"] || ""));
+      return;
+    }
+    if (rowId) {
+      this.hiddenRowIds.update((rowIds) => [...rowIds, rowId]);
+    }
   }
 
   exportExcel() {
@@ -491,6 +558,7 @@ export class UniversalDashboardPage {
     const clientName = (projectId: string) => projectById(projectId)?.client ?? "";
 
     const materials = this.data.materials().map((row) => ({
+      __rowId: `material:${row.id}`,
       client: clientName(row.projectId),
       project: projectName(row.projectId),
       site: row.site,
@@ -507,6 +575,7 @@ export class UniversalDashboardPage {
     const clients = this.data.clients().map((client) => {
       const summary = this.data.clientSummary(client);
       return {
+        __rowId: `client:${client.id}`,
         clientId: client.id,
         clientName: client.name,
         mobile: client.mobile,
@@ -522,6 +591,7 @@ export class UniversalDashboardPage {
     });
 
     const labour = this.data.labour().map((row) => ({
+      __rowId: `labour:${row.id}`,
       client: clientName(row.projectId),
       project: projectName(row.projectId),
       site: row.site,
@@ -538,6 +608,7 @@ export class UniversalDashboardPage {
     }));
 
     const expenses = this.data.expenses().map((row) => ({
+      __rowId: `expense:${row.id}`,
       client: clientName(row.projectId),
       project: projectName(row.projectId),
       site: row.site,
@@ -551,6 +622,7 @@ export class UniversalDashboardPage {
     }));
 
     const payments = this.data.payments().map((row) => ({
+      __rowId: `payment:${row.id}`,
       client: clientName(row.projectId),
       project: projectName(row.projectId),
       paymentDate: row.date,
@@ -563,6 +635,7 @@ export class UniversalDashboardPage {
     }));
 
     const vendors = this.data.vendors().map((vendor) => ({
+      __rowId: `vendor:${vendor.id}`,
       vendorId: vendor.id,
       vendorName: vendor.name,
       materialType: vendor.materialType,
@@ -579,12 +652,53 @@ export class UniversalDashboardPage {
       ["Material", "Inventory Report", "All materials", "Project Manager", "Excel", "Ready"],
       ["Vendor", "Vendor Purchase Report", "All vendors", "Admin", "Excel", "Ready"],
       ["Project", "Project Summary", "All clients", "Admin", "Excel", "Ready"],
-    ].map(([category, reportName, scope, owner, exportFormat, status]) => ({ category, reportName, scope, owner, exportFormat, status }));
+    ].map(([category, reportName, scope, owner, exportFormat, status], index) => ({
+      __rowId: `report:${index}`,
+      category,
+      reportName,
+      scope,
+      owner,
+      exportFormat,
+      status,
+    }));
 
     return { materials, clients, labour, expenses, payments, vendors, reports };
   }
 
+  private rowsFor(module: DashboardModule): TableRow[] {
+    const edits = this.rowEdits();
+    const hidden = new Set(this.hiddenRowIds());
+    return [...this.buildRows()[module], ...this.customRows()[module]]
+      .filter((row) => !hidden.has(String(row["__rowId"] || "")))
+      .map((row) => {
+        const rowId = String(row["__rowId"] || "");
+        return rowId && edits[rowId] ? { ...row, ...edits[rowId] } : row;
+      });
+  }
+
+  private updateClientCell(row: TableRow, key: string, value: string) {
+    const clientId = String(row["clientId"] || "");
+    if (!clientId) return;
+
+    if (key === "clientName") this.data.updateClient(clientId, { name: value || "Unnamed Client" });
+    if (key === "mobile") this.data.updateClient(clientId, { mobile: value });
+    if (key === "address") this.data.updateClient(clientId, { address: value });
+    if (key === "supervisor") this.data.updateClient(clientId, { supervisor: value || "Unassigned" });
+    if (key === "status") this.data.updateClient(clientId, { status: this.normalizeClientStatus(value) });
+  }
+
+  private normalizeClientStatus(value: string) {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "completed") return "Completed";
+    if (normalized === "on hold" || normalized === "hold") return "On Hold";
+    return "Active";
+  }
+
   private emptyColumnMap(): Record<DashboardModule, FieldSchema[]> {
+    return { materials: [], clients: [], labour: [], expenses: [], payments: [], vendors: [], reports: [] };
+  }
+
+  private emptyRowMap(): Record<DashboardModule, TableRow[]> {
     return { materials: [], clients: [], labour: [], expenses: [], payments: [], vendors: [], reports: [] };
   }
 

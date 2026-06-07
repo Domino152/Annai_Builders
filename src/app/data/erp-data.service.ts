@@ -1,4 +1,4 @@
-import { Injectable, computed, signal } from "@angular/core";
+import { Injectable, computed, effect, signal } from "@angular/core";
 import {
   expenses,
   labour,
@@ -36,7 +36,8 @@ export type Vendor = {
 
 @Injectable({ providedIn: "root" })
 export class ErpDataService {
-  readonly clients = signal<Client[]>([
+  readonly clients = signal<Client[]>(
+    this.readState<Client[]>("clients", [
     {
       id: "CL-1001",
       initials: "MR",
@@ -97,14 +98,16 @@ export class ErpDataService {
       projectIds: ["AB-1008"],
       supervisor: "M. Saravanan",
     },
-  ]);
+    ]),
+  );
 
-  readonly projects = signal<Project[]>(projects);
-  readonly materials = signal<MaterialRow[]>(materials);
-  readonly labour = signal<LabourRow[]>(labour);
-  readonly expenses = signal<ExpenseRow[]>(expenses);
-  readonly payments = signal<PaymentRow[]>(payments);
-  readonly vendors = signal<Vendor[]>([
+  readonly projects = signal<Project[]>(this.readState<Project[]>("projects", projects));
+  readonly materials = signal<MaterialRow[]>(this.readState<MaterialRow[]>("materials", materials));
+  readonly labour = signal<LabourRow[]>(this.readState<LabourRow[]>("labour", labour));
+  readonly expenses = signal<ExpenseRow[]>(this.readState<ExpenseRow[]>("expenses", expenses));
+  readonly payments = signal<PaymentRow[]>(this.readState<PaymentRow[]>("payments", payments));
+  readonly vendors = signal<Vendor[]>(
+    this.readState<Vendor[]>("vendors", [
     {
       id: "VEN-101",
       name: "Sri Devi Traders",
@@ -137,7 +140,8 @@ export class ErpDataService {
       address: "Poonamallee, Chennai",
       gst: "33AABFT4021K1Z9",
     },
-  ]);
+    ]),
+  );
 
   readonly reports = signal([
     "Payment Collection Report",
@@ -154,6 +158,16 @@ export class ErpDataService {
   ]);
 
   readonly activeClients = computed(() => this.clients().filter((client) => client.status === "Active").length);
+
+  constructor() {
+    effect(() => this.writeState("clients", this.clients()));
+    effect(() => this.writeState("projects", this.projects()));
+    effect(() => this.writeState("materials", this.materials()));
+    effect(() => this.writeState("labour", this.labour()));
+    effect(() => this.writeState("expenses", this.expenses()));
+    effect(() => this.writeState("payments", this.payments()));
+    effect(() => this.writeState("vendors", this.vendors()));
+  }
 
   addClient(input: { name: string; mobile: string; address: string; supervisor: string }): Client {
     const nextNumber = 1001 + this.clients().length;
@@ -176,6 +190,43 @@ export class ErpDataService {
 
     this.clients.update((clients) => [client, ...clients]);
     return client;
+  }
+
+  updateClient(clientId: string, patch: Partial<Omit<Client, "id" | "projectIds">>) {
+    let updatedClient: Client | undefined;
+
+    this.clients.update((clients) =>
+      clients.map((client) => {
+        if (client.id !== clientId) return client;
+        updatedClient = {
+          ...client,
+          ...patch,
+          initials: patch.name ? this.initialsFor(patch.name) : client.initials,
+        };
+        return updatedClient;
+      }),
+    );
+
+    if (!updatedClient) return;
+
+    const syncedClient = updatedClient;
+    this.projects.update((projectRows) =>
+      projectRows.map((project) =>
+        syncedClient.projectIds.includes(project.id)
+          ? {
+              ...project,
+              client: syncedClient.name,
+              mobile: syncedClient.mobile,
+              address: syncedClient.address,
+              supervisor: syncedClient.supervisor,
+            }
+          : project,
+      ),
+    );
+  }
+
+  deleteClient(clientId: string) {
+    this.clients.update((clients) => clients.filter((client) => client.id !== clientId));
   }
 
   addProject(
@@ -265,5 +316,41 @@ export class ErpDataService {
         .filter((row) => clientProjects.some((project) => project.id === row.projectId))
         .reduce((sum, row) => sum + row.presentCount, 0),
     };
+  }
+
+  private initialsFor(name: string): string {
+    return (
+      name
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((word) => word[0]?.toUpperCase() ?? "")
+        .join("") || "AG"
+    );
+  }
+
+  private readState<T>(key: string, fallback: T): T {
+    if (typeof localStorage === "undefined") return fallback;
+
+    try {
+      const value = localStorage.getItem(this.storageKey(key));
+      return value ? (JSON.parse(value) as T) : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private writeState<T>(key: string, value: T) {
+    if (typeof localStorage === "undefined") return;
+
+    try {
+      localStorage.setItem(this.storageKey(key), JSON.stringify(value));
+    } catch {
+      // Local storage is a convenience for the static demo, so quota failures should not block the UI.
+    }
+  }
+
+  private storageKey(key: string): string {
+    return `agb-erp:${key}`;
   }
 }
