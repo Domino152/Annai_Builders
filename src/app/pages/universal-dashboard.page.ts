@@ -217,7 +217,7 @@ const dashboardModules: ModuleConfig[] = [
       <agb-enterprise-sidebar active="dashboard"></agb-enterprise-sidebar>
 
       <div class="ion-page" id="main-content">
-        <agb-enterprise-header [showTitle]="false" role="Admin" searchPlaceholder="Search universal dashboard..." />
+        <agb-enterprise-header title="Dashboard" eyebrow="Universal Records" metaLabel="Company-wide view" [showTitle]="false" role="Admin" searchPlaceholder="Search universal dashboard..." />
 
         <ion-content class="erp-page">
           <main class="workspace-shell">
@@ -311,10 +311,10 @@ const dashboardModules: ModuleConfig[] = [
                         <div class="empty-record-state" aria-label="No records in this table">
                           <span class="empty-box-icon" aria-hidden="true">
                             <svg viewBox="0 0 64 64">
-                              <path d="M14 22h34l6 11v19H8V33l6-11Z" />
-                              <path d="M14 22 8 33h16l4 6h8l4-6h16l-6-11" />
-                              <path d="M20 16h24" />
-                              <path d="M24 10h16" />
+                              <rect x="14" y="18" width="36" height="34" rx="7" />
+                              <path d="M22 18v-4h20v4" />
+                              <path d="M14 31h14l4 6 4-6h14" />
+                              <path d="M24 44h16" />
                             </svg>
                           </span>
                           <strong>No records</strong>

@@ -16,7 +16,7 @@ import { formatMoney, statusClass } from "../shared/format";
       <agb-enterprise-sidebar active="clients"></agb-enterprise-sidebar>
 
       <div class="ion-page" id="main-content">
-        <agb-enterprise-header [showTitle]="false" searchPlaceholder="Search clients, projects, receipts..." />
+        <agb-enterprise-header title="Clients" eyebrow="Client Registry" metaLabel="Client workspace" [showTitle]="false" searchPlaceholder="Search clients, projects, receipts..." />
 
         <ion-content class="erp-page">
           <main class="client-landing">
@@ -66,7 +66,6 @@ import { formatMoney, statusClass } from "../shared/format";
 
                 <div class="client-card-footer">
                   <span>Open Client</span>
-                  <span>View Reports</span>
                   <strong>Edit Client</strong>
                 </div>
               </article>
@@ -90,14 +89,20 @@ export class ClientDashboardPage {
   readonly statusClass = statusClass;
 
   openClient(client: Client) {
-    void this.router.navigate(["/clients", client.id]);
+    const project = this.data.firstProjectForClient(client);
+    if (!project) {
+      void this.router.navigate(["/clients", client.id]);
+      return;
+    }
+    void this.router.navigate(["/clients", client.id, "projects", project.id, "materials"]);
   }
 
   createClient(value: ClientFormValue) {
     if (!value.name || !value.mobile || !value.address || !value.supervisor) return;
     const client = this.data.addClient(value);
+    const project = this.data.createDefaultProject(client);
     this.showClientForm.set(false);
-    setTimeout(() => void this.router.navigate(["/clients", client.id]));
+    setTimeout(() => void this.router.navigate(["/clients", client.id, "projects", project.id, "materials"]));
   }
 
   summary(client: Client) {

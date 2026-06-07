@@ -2,27 +2,28 @@ import { CommonModule } from "@angular/common";
 import { ChangeDetectionStrategy, Component, Input } from "@angular/core";
 import {
   IonHeader,
-  IonTitle,
   IonToolbar,
 } from "@ionic/angular/standalone";
 
 @Component({
   selector: "agb-enterprise-header",
   standalone: true,
-  imports: [CommonModule, IonHeader, IonTitle, IonToolbar],
+  imports: [CommonModule, IonHeader, IonToolbar],
   template: `
     <ion-header class="enterprise-header" [class.client-header]="dark">
       <ion-toolbar>
         <div class="enterprise-toolbar">
-          <div class="toolbar-left">
-            <ion-title *ngIf="showLogo || showTitle">
-              <img *ngIf="showLogo" class="topbar-logo" [src]="logoPath" alt="Annai Golden Builders" />
-              <span *ngIf="!showLogo && showTitle">{{ title }}</span>
-            </ion-title>
+          <div class="toolbar-context">
+            <span>{{ eyebrow }}</span>
+            <strong>{{ title }}</strong>
           </div>
 
           <div class="toolbar-search">
             <input [placeholder]="searchPlaceholder" />
+          </div>
+
+          <div class="toolbar-meta">
+            <span>{{ metaLabel }}</span>
           </div>
         </div>
       </ion-toolbar>
@@ -31,7 +32,9 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class EnterpriseHeaderComponent {
-  @Input() title = "Annai Golden Builders";
+  @Input() title = "Dashboard";
+  @Input() eyebrow = "Annai Golden Builders";
+  @Input() metaLabel = "Live workspace";
   @Input() role = "Admin";
   @Input() dark = false;
   @Input() showLogo = false;

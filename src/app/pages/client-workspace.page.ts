@@ -1,5 +1,5 @@
 import { CommonModule } from "@angular/common";
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from "@angular/core";
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from "@angular/core";
 import { ActivatedRoute, Router } from "@angular/router";
 import {
   IonBadge,
@@ -43,7 +43,7 @@ import { formatMoney, statusClass } from "../shared/format";
       ></agb-enterprise-sidebar>
 
       <div class="ion-page" id="main-content">
-        <agb-enterprise-header [showTitle]="false" role="Admin" />
+        <agb-enterprise-header title="Client Projects" eyebrow="Project fallback" metaLabel="No-project state" [showTitle]="false" role="Admin" />
 
         <ion-content class="erp-page">
           <main class="workspace-shell client-project-shell" *ngIf="client() as currentClient">
@@ -94,7 +94,7 @@ import { formatMoney, statusClass } from "../shared/format";
                 </div>
               </div>
 
-              <div class="project-select-grid">
+              <div class="project-select-grid" *ngIf="projects().length; else noProjects">
                 <article *ngFor="let project of projects()" class="project-select-card" role="button" tabindex="0" (click)="openProject(project)" (keydown.enter)="openProject(project)">
                   <div class="project-hover-actions" aria-label="Project actions">
                     <button type="button" aria-label="Edit project" (click)="openEditProject(project, $event)">
@@ -139,6 +139,21 @@ import { formatMoney, statusClass } from "../shared/format";
                   </div>
                 </article>
               </div>
+
+              <ng-template #noProjects>
+                <div class="project-empty-state">
+                  <span class="empty-box-icon large" aria-hidden="true">
+                    <svg viewBox="0 0 64 64">
+                      <rect x="14" y="18" width="36" height="34" rx="7" />
+                      <path d="M22 18v-4h20v4" />
+                      <path d="M14 31h14l4 6 4-6h14" />
+                      <path d="M24 44h16" />
+                    </svg>
+                  </span>
+                  <h2>No records found</h2>
+                  <p>This client does not have any active projects.</p>
+                </div>
+              </ng-template>
             </section>
 
             <agb-project-form-dialog
@@ -189,6 +204,15 @@ export class ClientWorkspacePage {
       ? this.data.clientSummary(currentClient)
       : { totalValue: 0, received: 0, pending: 0, materialCost: 0, labourCost: 0, siteExpense: 0, activeSites: 0, activeLabour: 0 };
   });
+
+  constructor() {
+    effect(() => {
+      const project = this.projects()[0];
+      if (project) {
+        void this.router.navigate(["/clients", this.clientId(), "projects", project.id, "materials"], { replaceUrl: true });
+      }
+    });
+  }
 
   openProject(project: Project) {
     void this.router.navigate(["/clients", this.clientId(), "projects", project.id]);

@@ -256,6 +256,22 @@ export class ErpDataService {
     this.clients.update((clients) => clients.filter((client) => client.id !== clientId));
   }
 
+  createDefaultProject(client: Client): Project {
+    return this.addProject(client, {
+      name: `${client.name} Project`,
+      sites: ["Main Site"],
+      startDate: new Date().toISOString().slice(0, 10),
+      supervisor: client.supervisor,
+      status: "Active",
+      totalValue: 0,
+      advanceAmount: 0,
+    });
+  }
+
+  firstProjectForClient(client: Client | undefined): Project | undefined {
+    return this.projectsForClient(client)[0];
+  }
+
   addProject(
     client: Client,
     input: {

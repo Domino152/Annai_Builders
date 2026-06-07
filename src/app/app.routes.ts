@@ -15,6 +15,10 @@ export const routes: Routes = [
     loadComponent: () => import("./pages/client-dashboard.page").then((m) => m.ClientDashboardPage),
   },
   {
+    path: "settings",
+    loadComponent: () => import("./pages/settings.page").then((m) => m.SettingsPage),
+  },
+  {
     path: "clients/:clientId",
     loadComponent: () => import("./pages/client-workspace.page").then((m) => m.ClientWorkspacePage),
   },

@@ -10,7 +10,7 @@ import { EnterpriseSidebarComponent } from "../shared/enterprise-sidebar.compone
 import { formatMoney, formatNumber, statusClass } from "../shared/format";
 import { ProjectFormDialogComponent, type ProjectFormValue } from "../shared/project-form-dialog.component";
 
-type ModuleKey = Exclude<SharedModuleKey, "clients" | "generalExpenses">;
+type ModuleKey = Exclude<SharedModuleKey, "clients" | "generalExpenses" | "settings">;
 type TableRow = SharedTableRow;
 type FieldSchema = SharedTableField;
 type SectionConfig = {
@@ -120,18 +120,6 @@ const sectionConfigs: SectionConfig[] = [
       { key: "status", label: "Status" },
     ],
   },
-  {
-    key: "settings",
-    label: "Settings",
-    title: "Project Settings",
-    description: "Project configuration fields kept in a table so admin users can adjust operational defaults.",
-    columns: [
-      { key: "setting", label: "Setting" },
-      { key: "value", label: "Value" },
-      { key: "owner", label: "Owner" },
-      { key: "updated", label: "Updated" },
-    ],
-  },
 ];
 
 @Component({
@@ -157,7 +145,7 @@ const sectionConfigs: SectionConfig[] = [
       ></agb-enterprise-sidebar>
 
       <div class="ion-page" id="main-content">
-        <agb-enterprise-header [showTitle]="false" role="Admin" searchPlaceholder="Search table records..." />
+        <agb-enterprise-header title="Project Workspace" eyebrow="Project Operations" metaLabel="Site records" [showTitle]="false" role="Admin" searchPlaceholder="Search table records..." />
 
         <ion-content class="erp-page">
           <main class="workspace-shell" *ngIf="project() as currentProject">
@@ -310,10 +298,10 @@ const sectionConfigs: SectionConfig[] = [
                         <div class="empty-record-state" aria-label="No records in this table">
                           <span class="empty-box-icon" aria-hidden="true">
                             <svg viewBox="0 0 64 64">
-                              <path d="M14 22h34l6 11v19H8V33l6-11Z" />
-                              <path d="M14 22 8 33h16l4 6h8l4-6h16l-6-11" />
-                              <path d="M20 16h24" />
-                              <path d="M24 10h16" />
+                              <rect x="14" y="18" width="36" height="34" rx="7" />
+                              <path d="M22 18v-4h20v4" />
+                              <path d="M14 31h14l4 6 4-6h14" />
+                              <path d="M24 44h16" />
                             </svg>
                           </span>
                           <strong>No records</strong>
@@ -609,7 +597,12 @@ export class ProjectWorkspacePage {
     const deletingCurrent = project.id === this.projectId();
     this.data.deleteProject(project.id);
     if (deletingCurrent) {
-      void this.router.navigate(["/clients", this.clientId()]);
+      const nextProject = this.data.firstProjectForClient(this.client());
+      if (nextProject) {
+        void this.router.navigate(["/clients", this.clientId(), "projects", nextProject.id, this.activeSection()]);
+      } else {
+        void this.router.navigate(["/clients", this.clientId()]);
+      }
     }
   }
 
@@ -711,14 +704,6 @@ export class ProjectWorkspacePage {
       status,
     }));
 
-    const project = this.data.projectById(projectId);
-    const settings = [
-      { __rowId: `setting:${projectId}:name`, __projectId: projectId, projectId, setting: "Project Name", value: project?.name ?? "", owner: "Admin", updated: "Today" },
-      { __rowId: `setting:${projectId}:supervisor`, __projectId: projectId, projectId, setting: "Assigned Supervisor", value: project?.supervisor ?? "", owner: "Admin", updated: "Today" },
-      { __rowId: `setting:${projectId}:status`, __projectId: projectId, projectId, setting: "Status", value: project?.status ?? "", owner: "Project Manager", updated: "Today" },
-      { __rowId: `setting:${projectId}:module`, __projectId: projectId, projectId, setting: "Default Module", value: "Materials", owner: "Admin", updated: "Today" },
-    ];
-
     return {
       materials,
       labour,
@@ -726,7 +711,6 @@ export class ProjectWorkspacePage {
       payments,
       vendors,
       reports,
-      settings,
     };
   }
 
