@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "ng serve --host 127.0.0.1",
     "build": "ng build",
+    "build:pages": "ng build --base-href /AJUI/",
     "preview": "ng serve --host 127.0.0.1 --configuration production",
     "serve:dist": "node scripts/serve-dist.cjs"
   },
