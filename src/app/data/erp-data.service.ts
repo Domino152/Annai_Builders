@@ -34,7 +34,16 @@ export type Vendor = {
   gst: string;
 };
 
-export type SharedModuleKey = "materials" | "clients" | "labour" | "expenses" | "payments" | "vendors" | "reports" | "settings";
+export type SharedModuleKey =
+  | "materials"
+  | "clients"
+  | "labour"
+  | "expenses"
+  | "generalExpenses"
+  | "payments"
+  | "vendors"
+  | "reports"
+  | "settings";
 export type SharedFieldType = "text" | "number" | "date";
 export type SharedTableField = { key: string; label: string; type?: SharedFieldType };
 export type SharedTableRow = Record<string, string | number | undefined>;
@@ -376,11 +385,6 @@ export class ErpDataService {
     }));
   }
 
-  duplicateSharedRow(module: SharedModuleKey, row: SharedTableRow): SharedTableRow {
-    const { __rowId: _rowId, ...copy } = row;
-    return this.addCustomRow(module, copy);
-  }
-
   deleteSharedRow(rowId: string) {
     if (!rowId) return;
     this.customTableRows.update((rows) => {
@@ -453,11 +457,11 @@ export class ErpDataService {
   }
 
   private emptySharedFieldMap(): Record<SharedModuleKey, SharedTableField[]> {
-    return { materials: [], clients: [], labour: [], expenses: [], payments: [], vendors: [], reports: [], settings: [] };
+    return { materials: [], clients: [], labour: [], expenses: [], generalExpenses: [], payments: [], vendors: [], reports: [], settings: [] };
   }
 
   private emptySharedRowMap(): Record<SharedModuleKey, SharedTableRow[]> {
-    return { materials: [], clients: [], labour: [], expenses: [], payments: [], vendors: [], reports: [], settings: [] };
+    return { materials: [], clients: [], labour: [], expenses: [], generalExpenses: [], payments: [], vendors: [], reports: [], settings: [] };
   }
 
   private fieldKey(label: string, existingColumns: SharedTableField[]): string {

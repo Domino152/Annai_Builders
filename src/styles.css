@@ -5634,3 +5634,117 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* Logo, project module tabs, and expense split polish */
+.sidebar-logo-wrap {
+  justify-content: center;
+  min-height: 132px;
+  padding: 18px 16px 16px;
+}
+
+.sidebar-logo {
+  width: 104px;
+  height: 104px;
+  border-radius: 14px;
+  object-fit: contain;
+  background: #12131a;
+  box-shadow: 0 10px 24px rgba(16, 24, 40, 0.14);
+}
+
+.sidebar-brand-copy {
+  display: none;
+}
+
+.project-workbench {
+  overflow: hidden;
+  border: 1px solid var(--ui-line);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 12px 26px rgba(16, 24, 40, 0.08);
+}
+
+.project-workbench .operations-tabs {
+  min-height: 48px;
+  padding: 0 8px;
+  border-bottom-color: #d8dee8;
+  background: #f8fafc;
+}
+
+.project-workbench .operations-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  margin: 0 2px;
+  padding: 0 15px;
+  border-right: 0;
+  border-bottom-width: 3px;
+  color: #475467;
+  font-weight: 760;
+}
+
+.project-workbench .operations-tabs button small {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid #dde3eb;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #667085;
+  font-size: 11px;
+  font-weight: 780;
+}
+
+.project-workbench .operations-tabs button.active {
+  border-bottom-color: var(--ui-accent);
+  background: #ffffff;
+  color: #101828;
+}
+
+.project-workbench .operations-tabs button.active small {
+  border-color: var(--ui-accent-line);
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent-dark);
+}
+
+.project-workbench .table-first-toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(520px, auto);
+  gap: 14px;
+  padding: 13px 16px;
+}
+
+.project-workbench .table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.project-workbench .table-search {
+  width: min(34vw, 380px);
+  min-width: 260px;
+}
+
+.row-actions {
+  min-width: 96px;
+}
+
+.row-actions button {
+  margin-right: 0;
+}
+
+@media (max-width: 1180px) {
+  .project-workbench .table-first-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .project-workbench .table-actions {
+    justify-content: flex-start;
+  }
+
+  .project-workbench .table-search {
+    width: 100%;
+  }
+}

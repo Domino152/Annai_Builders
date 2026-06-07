@@ -9,7 +9,7 @@ import { EnterpriseSidebarComponent } from "../shared/enterprise-sidebar.compone
 import { formatMoney, formatNumber, statusClass } from "../shared/format";
 import { ProjectFormDialogComponent, type ProjectFormValue } from "../shared/project-form-dialog.component";
 
-type ModuleKey = Exclude<SharedModuleKey, "clients">;
+type ModuleKey = Exclude<SharedModuleKey, "clients" | "generalExpenses">;
 type TableRow = SharedTableRow;
 type FieldSchema = SharedTableField;
 type SectionConfig = {
@@ -176,7 +176,7 @@ const sectionConfigs: SectionConfig[] = [
               </dl>
             </section>
 
-            <section class="operations-workbench">
+            <section class="operations-workbench universal-workbench project-workbench">
               <nav class="operations-tabs" aria-label="Project table modules">
                 <button
                   *ngFor="let section of sections"
@@ -184,7 +184,8 @@ const sectionConfigs: SectionConfig[] = [
                   [class.active]="activeSection() === section.key"
                   (click)="switchSection(section.key)"
                 >
-                  {{ section.label }}
+                  <span>{{ section.label }}</span>
+                  <small>{{ visibleRows(section.key).length }}</small>
                 </button>
               </nav>
 
@@ -232,8 +233,7 @@ const sectionConfigs: SectionConfig[] = [
                         {{ row[column.key] }}
                       </td>
                       <td class="row-actions">
-                        <button type="button" (click)="duplicateRow(activeSection(), row)">Duplicate</button>
-                        <button type="button" (click)="deleteRow(activeSection(), row)">Delete</button>
+                        <button type="button" (click)="deleteRow(row)">Delete</button>
                       </td>
                     </tr>
                     <tr *ngIf="visibleRows(activeSection()).length === 0">
@@ -325,7 +325,7 @@ export class ProjectWorkspacePage {
   readonly fieldDialogOpen = signal(false);
   readonly newFieldLabel = signal("");
   readonly draftRow = signal<TableRow>({});
-  readonly tableRows = signal<Record<ModuleKey, TableRow[]>>(this.buildInitialRows(this.route.snapshot.paramMap.get("projectId") ?? ""));
+  readonly tableRows = computed<Record<ModuleKey, TableRow[]>>(() => this.buildInitialRows(this.projectId()));
 
   readonly clientId = computed(() => this.paramMap().get("clientId") ?? "");
   readonly projectId = computed(() => this.paramMap().get("projectId") ?? "");
@@ -371,8 +371,10 @@ export class ProjectWorkspacePage {
     this.data.addCustomRow(section, {
       ...this.draftRow(),
       __projectId: this.projectId(),
+      projectId: this.projectId(),
       client: currentProject?.client ?? "",
       project: currentProject?.name ?? "",
+      expenseScope: section === "expenses" ? "Site" : undefined,
     });
     this.recordDialogOpen.set(false);
   }
@@ -396,25 +398,9 @@ export class ProjectWorkspacePage {
     if (!target) return;
     const rowId = String(target["__rowId"] || "");
     if (rowId) this.data.updateSharedRowCell(rowId, key, value.trim());
-    if (rowId.startsWith("custom:")) return;
-
-    this.tableRows.update((rows) => ({
-      ...rows,
-      [section]: rows[section].map((row) => (String(row["__rowId"] || "") === rowId ? { ...row, [key]: value.trim() } : row)),
-    }));
   }
 
-  duplicateRow(section: ModuleKey, row: TableRow) {
-    const currentProject = this.project();
-    this.data.duplicateSharedRow(section, {
-      ...row,
-      __projectId: this.projectId(),
-      client: currentProject?.client ?? row["client"],
-      project: currentProject?.name ?? row["project"],
-    });
-  }
-
-  deleteRow(section: ModuleKey, row: TableRow) {
+  deleteRow(row: TableRow) {
     this.data.deleteSharedRow(String(row["__rowId"] || ""));
   }
 
@@ -458,6 +444,7 @@ export class ProjectWorkspacePage {
     const materials = this.data.materialsForProject(projectId).map((row) => ({
       __rowId: `material:${row.id}`,
       __projectId: row.projectId,
+      projectId: row.projectId,
       materialName: row.name,
       unit: row.unit,
       requestedQuantity: formatNumber(row.requested),
@@ -472,6 +459,7 @@ export class ProjectWorkspacePage {
     const labour = this.data.labourForProject(projectId).map((row) => ({
       __rowId: `labour:${row.id}`,
       __projectId: row.projectId,
+      projectId: row.projectId,
       labourName: row.party,
       category: row.category,
       site: row.site,
@@ -487,11 +475,13 @@ export class ProjectWorkspacePage {
     }));
 
     let runningBalance = this.data.projectById(projectId)?.expenseBalance ?? 0;
-    const expenses = this.data.expensesForProject(projectId).map((row) => {
+    const expenses = this.data.expensesForProject(projectId).filter((row) => row.type === "Site Expense").map((row) => {
       runningBalance += row.received - row.spent;
       return {
         __rowId: `expense:${row.id}`,
         __projectId: row.projectId,
+        projectId: row.projectId,
+        expenseScope: row.type,
         expenseDate: row.date,
         description: row.description,
         amount: formatMoney(row.spent),
@@ -507,6 +497,7 @@ export class ProjectWorkspacePage {
     const payments = this.data.paymentsForProject(projectId).map((row) => ({
       __rowId: `payment:${row.id}`,
       __projectId: row.projectId,
+      projectId: row.projectId,
       paymentDate: row.date,
       amount: formatMoney(row.amount),
       mode: row.mode,
@@ -519,6 +510,7 @@ export class ProjectWorkspacePage {
     const vendors = this.data.vendors().map((vendor) => ({
       __rowId: `vendor:${vendor.id}`,
       __projectId: projectId,
+      projectId,
       vendorName: vendor.name,
       materialType: vendor.materialType,
       phoneNumber: vendor.phone,
@@ -536,6 +528,7 @@ export class ProjectWorkspacePage {
     ].map(([category, reportName, description, owner, exportFormat, status], index) => ({
       __rowId: `project-report:${projectId}:${index}`,
       __projectId: projectId,
+      projectId,
       category,
       reportName,
       description,
@@ -546,10 +539,10 @@ export class ProjectWorkspacePage {
 
     const project = this.data.projectById(projectId);
     const settings = [
-      { __rowId: `setting:${projectId}:name`, __projectId: projectId, setting: "Project Name", value: project?.name ?? "", owner: "Admin", updated: "Today" },
-      { __rowId: `setting:${projectId}:supervisor`, __projectId: projectId, setting: "Assigned Supervisor", value: project?.supervisor ?? "", owner: "Admin", updated: "Today" },
-      { __rowId: `setting:${projectId}:status`, __projectId: projectId, setting: "Status", value: project?.status ?? "", owner: "Project Manager", updated: "Today" },
-      { __rowId: `setting:${projectId}:module`, __projectId: projectId, setting: "Default Module", value: "Materials", owner: "Admin", updated: "Today" },
+      { __rowId: `setting:${projectId}:name`, __projectId: projectId, projectId, setting: "Project Name", value: project?.name ?? "", owner: "Admin", updated: "Today" },
+      { __rowId: `setting:${projectId}:supervisor`, __projectId: projectId, projectId, setting: "Assigned Supervisor", value: project?.supervisor ?? "", owner: "Admin", updated: "Today" },
+      { __rowId: `setting:${projectId}:status`, __projectId: projectId, projectId, setting: "Status", value: project?.status ?? "", owner: "Project Manager", updated: "Today" },
+      { __rowId: `setting:${projectId}:module`, __projectId: projectId, projectId, setting: "Default Module", value: "Materials", owner: "Admin", updated: "Today" },
     ];
 
     return {

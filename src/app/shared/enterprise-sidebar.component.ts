@@ -20,10 +20,6 @@ type SidebarItem = {
       <ion-content>
         <div class="sidebar-logo-wrap">
           <img class="sidebar-logo" [src]="logoPath" alt="Annai Golden Builders" />
-          <div class="sidebar-brand-copy">
-            <strong>Annai Golden</strong>
-            <span>Builders ERP</span>
-          </div>
         </div>
 
         <ion-list lines="none" class="sidebar-nav">

@@ -7,7 +7,7 @@ import { EnterpriseHeaderComponent } from "../shared/enterprise-header.component
 import { EnterpriseSidebarComponent } from "../shared/enterprise-sidebar.component";
 import { formatMoney, formatNumber, statusClass } from "../shared/format";
 
-type DashboardModule = "materials" | "clients" | "labour" | "expenses" | "payments" | "vendors" | "reports";
+type DashboardModule = "materials" | "clients" | "labour" | "expenses" | "generalExpenses" | "payments" | "vendors" | "reports";
 type TableRow = SharedTableRow;
 type FieldSchema = SharedTableField;
 type FilterSchema = { key: string; label: string };
@@ -101,9 +101,9 @@ const dashboardModules: ModuleConfig[] = [
   },
   {
     key: "expenses",
-    label: "Expenses",
-    title: "All Expense Details",
-    description: "Every supervisor ledger and site expense detail across active projects.",
+    label: "Site Expenses",
+    title: "Site Expense Details",
+    description: "Project-linked supervisor ledger and site expense details across active sites.",
     columns: [
       { key: "client", label: "Client" },
       { key: "project", label: "Project" },
@@ -120,6 +120,28 @@ const dashboardModules: ModuleConfig[] = [
       { key: "project", label: "Project" },
       { key: "site", label: "Site" },
       { key: "supervisor", label: "Supervisor" },
+      { key: "approvalStatus", label: "Approval Status" },
+    ],
+  },
+  {
+    key: "generalExpenses",
+    label: "General Expenses",
+    title: "General Office Expenses",
+    description: "Office expenses not tied to a site, such as admin purchases, courier, printing, and overhead payments.",
+    columns: [
+      { key: "expenseDate", label: "Expense Date" },
+      { key: "department", label: "Department / Office" },
+      { key: "description", label: "Description" },
+      { key: "category", label: "Category" },
+      { key: "amount", label: "Amount" },
+      { key: "paidBy", label: "Paid By" },
+      { key: "reference", label: "Bill / Reference" },
+      { key: "approvalStatus", label: "Approval Status" },
+    ],
+    filters: [
+      { key: "department", label: "Department" },
+      { key: "category", label: "Category" },
+      { key: "paidBy", label: "Paid By" },
       { key: "approvalStatus", label: "Approval Status" },
     ],
   },
@@ -281,7 +303,6 @@ const dashboardModules: ModuleConfig[] = [
                         {{ row[column.key] }}
                       </td>
                       <td class="row-actions">
-                        <button type="button" (click)="duplicateRow(row)">Duplicate</button>
                         <button type="button" (click)="deleteRow(row)">Delete</button>
                       </td>
                     </tr>
@@ -484,22 +505,6 @@ export class UniversalDashboardPage {
     this.data.updateSharedRowCell(rowId, key, trimmedValue);
   }
 
-  duplicateRow(row: TableRow) {
-    const module = this.activeModule();
-    if (module === "clients") {
-      const client = this.data.addClient({
-        name: `${String(row["clientName"] || "Client")} Copy`,
-        mobile: String(row["mobile"] || ""),
-        address: String(row["address"] || ""),
-        supervisor: String(row["supervisor"] || "Unassigned"),
-      });
-      this.data.updateClient(client.id, { status: this.normalizeClientStatus(String(row["status"] || "")) });
-      return;
-    }
-
-    this.data.duplicateSharedRow(module, row);
-  }
-
   deleteRow(row: TableRow) {
     const module = this.activeModule();
     const rowId = String(row["__rowId"] || "");
@@ -590,7 +595,7 @@ export class UniversalDashboardPage {
       status: row.status,
     }));
 
-    const expenses = this.data.expenses().map((row) => ({
+    const expenses = this.data.expenses().filter((row) => row.type === "Site Expense").map((row) => ({
       __rowId: `expense:${row.id}`,
       __projectId: row.projectId,
       client: clientName(row.projectId),
@@ -601,6 +606,19 @@ export class UniversalDashboardPage {
       amount: formatMoney(row.spent),
       supervisor: row.supervisor,
       cashIssued: formatMoney(row.received),
+      reference: row.reference,
+      approvalStatus: row.status,
+    }));
+
+    const generalExpenses = this.data.expenses().filter((row) => row.type === "General Expense").map((row) => ({
+      __rowId: `general-expense:${row.id}`,
+      __projectId: "",
+      expenseDate: row.date,
+      department: "Head Office",
+      description: row.description,
+      category: "Office Expense",
+      amount: formatMoney(row.spent),
+      paidBy: row.supervisor,
       reference: row.reference,
       approvalStatus: row.status,
     }));
@@ -647,7 +665,7 @@ export class UniversalDashboardPage {
       status,
     }));
 
-    return { materials, clients, labour, expenses, payments, vendors, reports };
+    return { materials, clients, labour, expenses, generalExpenses, payments, vendors, reports };
   }
 
   private rowsFor(module: DashboardModule): TableRow[] {
