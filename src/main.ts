@@ -1,4 +1,9 @@
-import { provideRouter, withPreloading, PreloadAllModules } from "@angular/router";
+import {
+  provideRouter,
+  withHashLocation,
+  withPreloading,
+  PreloadAllModules,
+} from "@angular/router";
 import { bootstrapApplication } from "@angular/platform-browser";
 import { provideIonicAngular } from "@ionic/angular/standalone";
 import { addIcons } from "ionicons";
@@ -65,6 +70,10 @@ addIcons({
 bootstrapApplication(AppComponent, {
   providers: [
     provideIonicAngular(),
-    provideRouter(routes, withPreloading(PreloadAllModules)),
+    provideRouter(
+      routes,
+      withPreloading(PreloadAllModules),
+      withHashLocation(),
+    ),
   ],
 }).catch((error) => console.error(error));
