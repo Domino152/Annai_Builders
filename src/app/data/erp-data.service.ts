@@ -291,6 +291,27 @@ export class ErpDataService {
     return project;
   }
 
+  addSiteToProject(projectId: string, siteName: string): Project | undefined {
+    const cleanName = siteName.trim();
+    if (!cleanName) return undefined;
+    let updatedProject: Project | undefined;
+
+    this.projects.update((projectRows) =>
+      projectRows.map((project) => {
+        if (project.id !== projectId) return project;
+        const alreadyExists = project.sites.some((site) => site.toLowerCase() === cleanName.toLowerCase());
+        if (alreadyExists) {
+          updatedProject = project;
+          return project;
+        }
+        updatedProject = { ...project, sites: [...project.sites, cleanName] };
+        return updatedProject;
+      }),
+    );
+
+    return updatedProject;
+  }
+
   clientById(clientId: string | null): Client | undefined {
     return this.clients().find((client) => client.id === clientId);
   }

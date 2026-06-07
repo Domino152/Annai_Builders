@@ -27,6 +27,7 @@ const sectionConfigs: SectionConfig[] = [
     title: "Material Requests",
     description: "Fixed procurement fields for requests, approvals, vendors, purchase orders, and stock visibility.",
     columns: [
+      { key: "site", label: "Site" },
       { key: "materialName", label: "Material Name" },
       { key: "unit", label: "Unit" },
       { key: "requestedQuantity", label: "Requested Quantity", type: "number" },
@@ -189,6 +190,48 @@ const sectionConfigs: SectionConfig[] = [
                 </button>
               </nav>
 
+              <div class="site-workbench" *ngIf="isSiteAware(activeSection())">
+                <div class="site-switch-row">
+                  <span>Site</span>
+                  <div class="site-chip-strip">
+                    <button type="button" [class.active]="activeSiteFilter() === 'All'" (click)="selectSite('All')">All Sites</button>
+                    <button
+                      *ngFor="let site of projectSites()"
+                      type="button"
+                      [class.active]="activeSiteFilter() === site"
+                      (click)="selectSite(site)"
+                    >
+                      {{ site }}
+                    </button>
+                    <button *ngIf="!siteDraftOpen()" type="button" class="site-add-chip" aria-label="Add site" (click)="openSiteDraft()">
+                      <ion-icon name="add-outline"></ion-icon>
+                    </button>
+                    <form *ngIf="siteDraftOpen()" class="site-add-form" (submit)="saveSite($event)">
+                      <input
+                        [value]="siteDraftName()"
+                        (input)="siteDraftName.set($any($event.target).value)"
+                        placeholder="New site"
+                      />
+                      <button type="submit"><ion-icon name="checkmark-outline"></ion-icon></button>
+                      <button type="button" (click)="siteDraftOpen.set(false)"><ion-icon name="close-outline"></ion-icon></button>
+                    </form>
+                  </div>
+                </div>
+                <div class="site-module-row">
+                  <span>Site table</span>
+                  <button type="button" [class.active]="activeSection() === 'materials'" (click)="switchSection('materials')">Materials</button>
+                  <button type="button" [class.active]="activeSection() === 'labour'" (click)="switchSection('labour')">Labour</button>
+                  <button type="button" [class.active]="activeSection() === 'expenses'" (click)="switchSection('expenses')">Expenses</button>
+                </div>
+                <label class="labour-site-filter" *ngIf="activeSection() === 'labour'">
+                  <span>Labour site filter</span>
+                  <select [value]="activeSiteFilter()" (change)="selectSite($any($event.target).value)">
+                    <option value="All">All Sites</option>
+                    <option *ngFor="let site of projectSites()" [value]="site">{{ site }}</option>
+                  </select>
+                </label>
+              </div>
+
               <div class="module-toolbar table-first-toolbar">
                 <div>
                   <h2>{{ activeConfig().title }}</h2>
@@ -325,12 +368,20 @@ export class ProjectWorkspacePage {
   readonly fieldDialogOpen = signal(false);
   readonly newFieldLabel = signal("");
   readonly draftRow = signal<TableRow>({});
+  readonly activeSite = signal("All");
+  readonly siteDraftOpen = signal(false);
+  readonly siteDraftName = signal("");
   readonly tableRows = computed<Record<ModuleKey, TableRow[]>>(() => this.buildInitialRows(this.projectId()));
 
   readonly clientId = computed(() => this.paramMap().get("clientId") ?? "");
   readonly projectId = computed(() => this.paramMap().get("projectId") ?? "");
   readonly client = computed(() => this.data.clientById(this.clientId()));
   readonly project = computed(() => this.data.projectById(this.projectId()));
+  readonly projectSites = computed(() => this.project()?.sites ?? []);
+  readonly activeSiteFilter = computed(() => {
+    const site = this.activeSite();
+    return site === "All" || this.projectSites().includes(site) ? site : "All";
+  });
   readonly activeConfig = computed(() => sectionConfigs.find((section) => section.key === this.activeSection()) ?? sectionConfigs[0]);
 
   switchSection(section: ModuleKey) {
@@ -346,7 +397,11 @@ export class ProjectWorkspacePage {
 
   visibleRows(section: ModuleKey): TableRow[] {
     const query = this.tableSearch().trim().toLowerCase();
-    const rows = this.data.tableRowsFor(section, this.tableRows()[section] ?? [], (row) => this.rowBelongsToProject(row));
+    let rows = this.data.tableRowsFor(section, this.tableRows()[section] ?? [], (row) => this.rowBelongsToProject(row));
+    const site = this.activeSiteFilter();
+    if (this.isSiteAware(section) && site !== "All") {
+      rows = rows.filter((row) => String(row["site"] ?? "").toLowerCase() === site.toLowerCase());
+    }
     if (!query) return rows;
     return rows.filter((row) => Object.values(row).some((value) => String(value).toLowerCase().includes(query)));
   }
@@ -354,7 +409,7 @@ export class ProjectWorkspacePage {
   openRecordDialog() {
     const row: TableRow = {};
     for (const column of this.columnsFor(this.activeSection())) {
-      row[column.key] = "";
+      row[column.key] = column.key === "site" && this.activeSiteFilter() !== "All" ? this.activeSiteFilter() : "";
     }
     this.draftRow.set(row);
     this.recordDialogOpen.set(true);
@@ -368,8 +423,10 @@ export class ProjectWorkspacePage {
     event.preventDefault();
     const section = this.activeSection();
     const currentProject = this.project();
+    const selectedSite = this.activeSiteFilter();
     this.data.addCustomRow(section, {
       ...this.draftRow(),
+      ...(this.isSiteAware(section) && selectedSite !== "All" ? { site: this.draftRow()["site"] || selectedSite } : {}),
       __projectId: this.projectId(),
       projectId: this.projectId(),
       client: currentProject?.client ?? "",
@@ -377,6 +434,29 @@ export class ProjectWorkspacePage {
       expenseScope: section === "expenses" ? "Site" : undefined,
     });
     this.recordDialogOpen.set(false);
+  }
+
+  isSiteAware(section: ModuleKey): boolean {
+    return section === "materials" || section === "labour" || section === "expenses";
+  }
+
+  selectSite(site: string) {
+    this.activeSite.set(site);
+    this.tableSearch.set("");
+  }
+
+  openSiteDraft() {
+    this.siteDraftName.set("");
+    this.siteDraftOpen.set(true);
+  }
+
+  saveSite(event: Event) {
+    event.preventDefault();
+    const site = this.siteDraftName().trim();
+    if (!site) return;
+    this.data.addSiteToProject(this.projectId(), site);
+    this.activeSite.set(site);
+    this.siteDraftOpen.set(false);
   }
 
   openFieldDialog() {
@@ -445,6 +525,7 @@ export class ProjectWorkspacePage {
       __rowId: `material:${row.id}`,
       __projectId: row.projectId,
       projectId: row.projectId,
+      site: row.site,
       materialName: row.name,
       unit: row.unit,
       requestedQuantity: formatNumber(row.requested),
