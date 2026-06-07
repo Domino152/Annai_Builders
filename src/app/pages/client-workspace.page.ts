@@ -46,7 +46,7 @@ import { formatMoney, statusClass } from "../shared/format";
         <agb-enterprise-header [showTitle]="false" role="Admin" />
 
         <ion-content class="erp-page">
-          <main class="workspace-shell" *ngIf="client() as currentClient">
+          <main class="workspace-shell client-project-shell" *ngIf="client() as currentClient">
             <section class="client-workspace-header">
               <div>
                 <ion-text color="medium">{{ currentClient.id }}</ion-text>

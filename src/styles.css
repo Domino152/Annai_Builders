@@ -6911,3 +6911,384 @@ body {
     height: 240px;
   }
 }
+
+/* User requested blue theme and tighter workspace alignment */
+:root {
+  --ui-accent: #002263;
+  --ui-accent-dark: #001847;
+  --ui-accent-soft: #eef4ff;
+  --ui-accent-line: #b8c8e8;
+  --ui-royal: #002263;
+  --ui-royal-2: #123b85;
+  --ui-champagne: #002263;
+  --gold: #002263;
+  --gold-dark: #001847;
+  --ui-gold: #002263;
+  --ui-gold-dark: #001847;
+}
+
+.erp-page {
+  --background: linear-gradient(180deg, #eef3fa 0%, #f7f9fc 44%, #f3f6fa 100%);
+}
+
+.enterprise-header ion-toolbar,
+.enterprise-header.client-header ion-toolbar {
+  --min-height: 70px;
+  --padding-top: 0;
+  --padding-bottom: 0;
+  --background: rgba(255, 255, 255, 0.99);
+  --border-color: #d3dce8;
+}
+
+.enterprise-header ion-toolbar::part(container) {
+  align-items: center;
+}
+
+.enterprise-toolbar {
+  height: 70px;
+  min-height: 70px;
+  place-items: center;
+  padding: 0 28px;
+}
+
+.toolbar-search {
+  width: min(760px, 60vw);
+  height: 44px;
+  align-self: center;
+  justify-self: center;
+  border-color: #c4d0e3;
+  border-radius: 9px;
+  background: #ffffff;
+}
+
+.toolbar-search input {
+  height: 42px;
+  line-height: 42px;
+}
+
+.toolbar-search:focus-within,
+.universal-filter-bar select:focus,
+.erp-form input:focus,
+.erp-form textarea:focus,
+.erp-form select:focus,
+.status-edit-shell select:focus {
+  border-color: #8fa6d2;
+  box-shadow: 0 0 0 3px rgba(0, 34, 99, 0.14);
+}
+
+.sidebar-nav ion-item.selected {
+  --color: #002263;
+  border-left-color: #002263;
+}
+
+.sidebar-nav ion-item.selected ion-icon,
+.sidebar-section-head span,
+.workspace-breadcrumb button,
+.project-select-card-head > strong,
+.project-select-footer strong {
+  color: #002263;
+}
+
+.client-project-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  height: calc(100vh - 70px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.client-project-shell .client-workspace-header {
+  margin-bottom: 0;
+}
+
+.client-project-shell .project-management-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.project-management-panel > .module-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  min-height: 70px;
+  padding: 14px 18px;
+}
+
+.project-management-panel > .module-toolbar h2 {
+  margin: 0;
+  font-size: 21px;
+  line-height: 1.15;
+}
+
+.project-management-panel > .module-toolbar p {
+  max-width: 620px;
+  margin: 5px 0 0;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.project-management-panel .project-select-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  grid-template-columns: repeat(2, minmax(360px, 1fr));
+  align-content: start;
+  gap: 12px;
+  padding: 14px 16px 16px;
+}
+
+.project-select-card {
+  min-height: 0;
+  gap: 11px;
+  padding: 14px 16px 12px;
+  border-color: #cfd8e6;
+  box-shadow: 0 8px 18px rgba(15, 31, 66, 0.06);
+}
+
+.project-select-card:hover {
+  border-color: #9fb2d3;
+  box-shadow: 0 12px 26px rgba(0, 34, 99, 0.1);
+}
+
+.project-select-card-head {
+  align-items: flex-start;
+  padding-right: 62px;
+}
+
+.project-select-card-head h3 {
+  margin: 8px 0 4px;
+  font-size: 17px;
+}
+
+.project-select-meta,
+.project-select-footer {
+  font-size: 12px;
+}
+
+.project-select-ledger {
+  gap: 8px;
+}
+
+.project-select-ledger > div {
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+
+.project-select-ledger span {
+  font-size: 10px;
+}
+
+.project-select-ledger strong {
+  font-size: 12px;
+}
+
+.project-select-card ion-progress-bar {
+  height: 5px;
+  --progress-background: #002263;
+}
+
+.project-toolbar-icons {
+  gap: 8px;
+}
+
+.project-tool-action {
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  color: #20314f;
+}
+
+.project-tool-action.primary {
+  width: 40px;
+  height: 40px;
+  border-color: #002263;
+  background: linear-gradient(180deg, #123b85 0%, #002263 100%);
+  box-shadow: 0 10px 22px rgba(0, 34, 99, 0.2);
+}
+
+.project-tool-action .svg-icon,
+.project-tool-action.primary .svg-icon {
+  width: 17px;
+  height: 17px;
+}
+
+.project-hover-actions {
+  top: 10px;
+  right: 10px;
+}
+
+.project-hover-actions button,
+.sidebar-project-actions button {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+
+.project-hover-actions .svg-icon,
+.sidebar-project-actions .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.sidebar-section-head button.project-create-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #123b85 0%, #002263 100%);
+  box-shadow: 0 10px 20px rgba(0, 34, 99, 0.2);
+}
+
+.sidebar-section-head button.project-create-icon .svg-icon {
+  width: 17px;
+  height: 17px;
+}
+
+.table-actions ion-icon,
+.table-search ion-icon,
+.sidebar-nav ion-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.operations-tabs button.active {
+  color: #002263;
+  border-bottom-color: #002263;
+}
+
+.universal-workbench .operations-tabs button.active small,
+.project-workbench .operations-tabs button.active small,
+.site-workbench button.active {
+  border-color: #9fb2d3;
+  background: #eef4ff;
+  color: #002263;
+}
+
+.table-actions button.primary-table-action,
+.primary-action {
+  border-color: #002263;
+  background: linear-gradient(180deg, #123b85 0%, #002263 100%);
+  box-shadow: 0 10px 20px rgba(0, 34, 99, 0.16);
+}
+
+.table-actions button.primary-table-action:hover,
+.primary-action:hover {
+  border-color: #001847;
+  background: linear-gradient(180deg, #173f8f 0%, #001847 100%);
+}
+
+.status-edit-shell.completed select {
+  border-color: #9fb2d3;
+  background: #eef4ff;
+  color: #002263;
+}
+
+.project-compact-strip {
+  background:
+    linear-gradient(135deg, rgba(0, 34, 99, 0.06), rgba(255, 255, 255, 0.94) 56%),
+    #ffffff;
+}
+
+.operations-table,
+.universal-table {
+  min-height: 0;
+}
+
+.project-workbench .operations-table {
+  flex: 1 1 auto;
+  min-height: 300px;
+}
+
+.operations-table td.empty-row,
+.empty-row {
+  height: 300px;
+  vertical-align: middle;
+  background:
+    radial-gradient(circle at 50% 44%, rgba(0, 34, 99, 0.06), transparent 42%),
+    #ffffff;
+}
+
+.empty-record-state {
+  display: inline-grid;
+  justify-items: center;
+  gap: 8px;
+  color: #667085;
+  text-align: center;
+}
+
+.empty-record-state strong {
+  color: #172033;
+  font-size: 14px;
+  font-weight: 820;
+}
+
+.empty-record-state span:last-child {
+  max-width: 280px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.empty-box-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border: 1px solid #cfd8e6;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #f4f7fb 100%);
+  color: #002263;
+  box-shadow: 0 10px 24px rgba(0, 34, 99, 0.08);
+}
+
+.empty-box-icon svg {
+  width: 36px;
+  height: 36px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.empty-add-record,
+.empty-add-record:hover {
+  transform: none;
+}
+
+@media (max-width: 1180px) {
+  .client-project-shell {
+    height: auto;
+    overflow: visible;
+  }
+
+  .project-management-panel .project-select-grid {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 760px) {
+  .toolbar-search {
+    width: 100%;
+  }
+
+  .project-management-panel > .module-toolbar {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .project-toolbar-icons {
+    justify-content: flex-start;
+  }
+
+  .operations-table td.empty-row,
+  .empty-row {
+    height: 220px;
+  }
+}

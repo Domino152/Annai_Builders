@@ -308,18 +308,18 @@ const dashboardModules: ModuleConfig[] = [
                     </tr>
                     <tr *ngIf="visibleRows().length === 0">
                       <td class="empty-row" [attr.colspan]="columnsForActive().length + 1">
-                        <button type="button" class="empty-add-record" (click)="openRecordDialog()">
-                          <span class="empty-add-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" class="svg-icon">
-                              <path d="M4 6h10" />
-                              <path d="M4 12h8" />
-                              <path d="M4 18h7" />
-                              <path d="M17 11v8" />
-                              <path d="M13 15h8" />
+                        <div class="empty-record-state" aria-label="No records in this table">
+                          <span class="empty-box-icon" aria-hidden="true">
+                            <svg viewBox="0 0 64 64">
+                              <path d="M14 22h34l6 11v19H8V33l6-11Z" />
+                              <path d="M14 22 8 33h16l4 6h8l4-6h16l-6-11" />
+                              <path d="M20 16h24" />
+                              <path d="M24 10h16" />
                             </svg>
                           </span>
-                          <span>Add first record</span>
-                        </button>
+                          <strong>No records</strong>
+                          <span>Records added from the toolbar will appear here.</span>
+                        </div>
                       </td>
                     </tr>
                   </tbody>
