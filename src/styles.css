@@ -5908,3 +5908,131 @@ body {
     padding-right: 4px;
   }
 }
+
+/* Client-first shell and modal overlay refinement */
+.enterprise-toolbar {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 620px);
+  padding-right: 28px;
+}
+
+.toolbar-search {
+  justify-self: end;
+  width: min(100%, 620px);
+}
+
+.toolbar-actions,
+.role-pill,
+.toolbar-actions ion-avatar {
+  display: none;
+}
+
+.sidebar-shell {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+}
+
+.sidebar-logo-wrap {
+  min-height: 92px;
+  padding: 12px 16px 10px;
+}
+
+.sidebar-logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  box-shadow: 0 5px 14px rgba(16, 24, 40, 0.08);
+}
+
+.sidebar-action {
+  margin: 12px 14px 0;
+}
+
+.sidebar-user-panel {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 10px;
+  margin: auto 14px 16px;
+  padding: 10px;
+  border: 1px solid var(--ui-line);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+
+.sidebar-user-avatar,
+.sidebar-logout {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+}
+
+.sidebar-user-avatar {
+  background: #f3f6fa;
+  color: #344054;
+}
+
+.sidebar-user-avatar ion-icon,
+.sidebar-logout ion-icon {
+  width: 17px;
+  height: 17px;
+}
+
+.sidebar-user-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.sidebar-user-copy strong {
+  overflow: hidden;
+  color: var(--ui-text);
+  font-size: 13px;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-user-copy span {
+  color: var(--ui-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sidebar-logout {
+  border: 1px solid transparent;
+  background: transparent;
+  color: #667085;
+  cursor: pointer;
+}
+
+.sidebar-logout:hover {
+  border-color: #d7dee8;
+  background: #f8fafc;
+  color: #101828;
+}
+
+.form-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow: auto;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(10px);
+}
+
+@media (max-width: 760px) {
+  .enterprise-toolbar {
+    grid-template-columns: 1fr;
+    padding: 0 14px;
+  }
+
+  .toolbar-search {
+    display: flex;
+    justify-self: stretch;
+    width: 100%;
+  }
+}

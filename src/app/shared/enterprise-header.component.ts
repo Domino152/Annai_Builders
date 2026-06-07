@@ -1,8 +1,6 @@
 import { CommonModule } from "@angular/common";
 import { ChangeDetectionStrategy, Component, Input } from "@angular/core";
 import {
-  IonAvatar,
-  IonButtons,
   IonHeader,
   IonIcon,
   IonTitle,
@@ -12,7 +10,7 @@ import {
 @Component({
   selector: "agb-enterprise-header",
   standalone: true,
-  imports: [CommonModule, IonAvatar, IonButtons, IonHeader, IonIcon, IonTitle, IonToolbar],
+  imports: [CommonModule, IonHeader, IonIcon, IonTitle, IonToolbar],
   template: `
     <ion-header class="enterprise-header" [class.client-header]="dark">
       <ion-toolbar>
@@ -28,13 +26,6 @@ import {
             <ion-icon name="search-outline"></ion-icon>
             <input [placeholder]="searchPlaceholder" />
           </div>
-
-          <ion-buttons class="toolbar-actions">
-            <span class="role-pill">{{ role }}</span>
-            <ion-avatar>
-              <span>AG</span>
-            </ion-avatar>
-          </ion-buttons>
         </div>
       </ion-toolbar>
     </ion-header>
