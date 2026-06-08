@@ -8838,6 +8838,17 @@ body {
   font-size: 16px !important;
 }
 
+.row-actions .icon-row-action svg {
+  width: 17px !important;
+  height: 17px !important;
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 2px !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+  opacity: 1 !important;
+}
+
 .row-actions .icon-row-action.danger:hover {
   border-color: #fecdd3 !important;
   background: #fff1f2 !important;

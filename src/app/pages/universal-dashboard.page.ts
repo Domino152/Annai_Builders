@@ -194,10 +194,10 @@ const dashboardModules: ModuleConfig[] = [
       { key: "vendorId", label: "Vendor ID" },
       { key: "vendorName", label: "Vendor Name" },
       { key: "materialType", label: "Material Type" },
+      { key: "materialsBought", label: "Materials Bought" },
       { key: "phoneNumber", label: "Phone Number" },
       { key: "address", label: "Address" },
       { key: "gstNumber", label: "GST Number" },
-      { key: "purchaseHistory", label: "Purchase History" },
     ],
     filters: [
       { key: "materialType", label: "Material Type" },
@@ -399,7 +399,13 @@ const dashboardModules: ModuleConfig[] = [
                       </td>
                       <td class="row-actions">
                         <button type="button" class="icon-row-action danger" aria-label="Delete row" title="Delete row" (click)="deleteRow(row)">
-                          <ion-icon name="trash-outline"></ion-icon>
+                          <svg viewBox="0 0 24 24" aria-hidden="true" class="svg-icon">
+                            <path d="M4 7h16" />
+                            <path d="M10 11v6" />
+                            <path d="M14 11v6" />
+                            <path d="M6 7l1 14h10l1-14" />
+                            <path d="M9 7V4h6v3" />
+                          </svg>
                         </button>
                       </td>
                     </tr>
@@ -435,7 +441,16 @@ const dashboardModules: ModuleConfig[] = [
                 <div class="erp-form">
                   <label *ngFor="let column of columnsForActive()">
                     <span>{{ column.label }}</span>
-                    <input [type]="column.type || 'text'" [value]="draftRow()[column.key] || ''" (input)="updateDraftField(column.key, $any($event.target).value)" />
+                    <select
+                      *ngIf="selectOptions(activeModule(), column.key).length > 0; else dashboardDraftInput"
+                      [value]="draftRow()[column.key] || ''"
+                      (change)="updateDraftField(column.key, $any($event.target).value)"
+                    >
+                      <option *ngFor="let option of selectOptions(activeModule(), column.key)" [value]="option">{{ option }}</option>
+                    </select>
+                    <ng-template #dashboardDraftInput>
+                      <input [type]="column.type || 'text'" [value]="draftRow()[column.key] || ''" (input)="updateDraftField(column.key, $any($event.target).value)" />
+                    </ng-template>
                   </label>
                 </div>
                 <div class="dialog-actions">
@@ -566,7 +581,10 @@ export class UniversalDashboardPage {
 
   openRecordDialog() {
     const row: TableRow = {};
-    for (const column of this.columnsForActive()) row[column.key] = "";
+    for (const column of this.columnsForActive()) {
+      const options = this.selectOptions(this.activeModule(), column.key);
+      row[column.key] = options[0] ?? "";
+    }
     this.draftRow.set(row);
     this.recordDialogOpen.set(true);
   }
@@ -752,7 +770,7 @@ export class UniversalDashboardPage {
       project: projectName(row.projectId),
       site: row.site,
       expenseDate: row.date,
-      transactionType: "Site Expense (-)",
+      transactionType: "Site Expense",
       description: row.description,
       amount: formatMoney(-row.spent),
       runningBalance: formatMoney(0),
@@ -794,10 +812,10 @@ export class UniversalDashboardPage {
       vendorId: vendor.id,
       vendorName: vendor.name,
       materialType: vendor.materialType,
+      materialsBought: this.materialPurchaseSummaryForVendor(vendor.name),
       phoneNumber: vendor.phone,
       address: vendor.address,
       gstNumber: vendor.gst,
-      purchaseHistory: "Available",
     }));
 
     const supervisors = this.data.supervisors().map((supervisor) => ({
@@ -862,16 +880,18 @@ export class UniversalDashboardPage {
   }
 
   selectOptions(module: DashboardModule, key: string): string[] {
+    if (key === "site") return this.siteOptionsForModule(module);
+    if (module === "labour" && key === "staffName") return this.staffNameOptions();
     if (module === "expenses" && key === "transactionType") {
       return [
-        "Site Expense (-)",
-        "Material Purchase (-)",
-        "Supervisor Expense (-)",
-        "Cash Added (+)",
-        "Cash Issued to Supervisor (+)",
-        "Payment Received (+)",
-        "Payment Received from Annai Golden Builders Pvt Ltd (+)",
-        "Refund / Return (+)",
+        "Site Expense",
+        "Material Purchase",
+        "Supervisor Expense",
+        "Cash Added",
+        "Cash Issued to Supervisor",
+        "Payment Received",
+        "Payment Received from Annai Golden Builders Pvt Ltd",
+        "Refund / Return",
         "Adjustment",
       ];
     }
@@ -906,7 +926,7 @@ export class UniversalDashboardPage {
         projectId: "",
         site: "",
         attendanceDate: today,
-        staffName: "",
+        staffName: this.staffNameOptions()[0] ?? "",
         category: "Mason",
         masonCount: "1",
         helperCount: "0",
@@ -927,7 +947,7 @@ export class UniversalDashboardPage {
         project: "",
         site: "",
         expenseDate: today,
-        transactionType: "Site Expense (-)",
+        transactionType: "Site Expense",
         description: "",
         amount: "0",
         runningBalance: formatMoney(0),
@@ -959,10 +979,10 @@ export class UniversalDashboardPage {
       vendors: {
         vendorName: "",
         materialType: "",
+        materialsBought: formatNumber(0),
         phoneNumber: "",
         address: "",
         gstNumber: "",
-        purchaseHistory: "",
       },
       supervisors: {
         supervisorName: "",
@@ -1059,6 +1079,32 @@ export class UniversalDashboardPage {
       normalized.includes("refund") ||
       normalized.includes("credit")
     );
+  }
+
+  private siteOptionsForModule(module: DashboardModule): string[] {
+    const sites = new Set<string>();
+    for (const project of this.data.projects()) project.sites.forEach((site) => sites.add(site));
+    for (const row of this.rowsFor(module)) {
+      const site = String(row["site"] || "").trim();
+      if (site) sites.add(site);
+    }
+    return [...sites].sort((a, b) => a.localeCompare(b));
+  }
+
+  private staffNameOptions(): string[] {
+    const names = new Set<string>();
+    for (const row of this.rowsFor("labour")) {
+      const name = String(row["staffName"] || row["labourName"] || "").trim();
+      if (name) names.add(name);
+    }
+    ["Velu Mason Party", "Ganesh Plumbing", "Selvam Civil Works", "Balu Helper Team"].forEach((name) => names.add(name));
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }
+
+  private materialPurchaseSummaryForVendor(vendorName: string): string {
+    const rows = this.data.materials().filter((row) => row.vendor.toLowerCase() === vendorName.toLowerCase());
+    const purchased = rows.reduce((sum, row) => sum + row.purchased, 0);
+    return rows.length ? `${formatNumber(rows.length)} records / ${formatNumber(purchased)} purchased` : "0 records";
   }
 
   private expenseGroupKey(row: TableRow): string {

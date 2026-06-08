@@ -108,10 +108,10 @@ const sectionConfigs: SectionConfig[] = [
     columns: [
       { key: "vendorName", label: "Vendor Name" },
       { key: "materialType", label: "Material Type" },
+      { key: "materialsBought", label: "Materials Bought" },
       { key: "phoneNumber", label: "Phone Number" },
       { key: "address", label: "Address" },
       { key: "gstNumber", label: "GST Number" },
-      { key: "purchaseHistory", label: "Purchase History" },
     ],
   },
   {
@@ -354,7 +354,13 @@ const sectionConfigs: SectionConfig[] = [
                       </td>
                       <td class="row-actions">
                         <button type="button" class="icon-row-action danger" aria-label="Delete row" title="Delete row" (click)="deleteRow(row)">
-                          <ion-icon name="trash-outline"></ion-icon>
+                          <svg viewBox="0 0 24 24" aria-hidden="true" class="svg-icon">
+                            <path d="M4 7h16" />
+                            <path d="M10 11v6" />
+                            <path d="M14 11v6" />
+                            <path d="M6 7l1 14h10l1-14" />
+                            <path d="M9 7V4h6v3" />
+                          </svg>
                         </button>
                       </td>
                     </tr>
@@ -390,11 +396,20 @@ const sectionConfigs: SectionConfig[] = [
                 <div class="erp-form">
                   <label *ngFor="let column of columnsFor(activeSection())">
                     <span>{{ column.label }}</span>
-                    <input
-                      [type]="column.type || 'text'"
+                    <select
+                      *ngIf="selectOptions(activeSection(), column.key).length > 0; else projectDraftInput"
                       [value]="draftRow()[column.key] || ''"
-                      (input)="updateDraftField(column.key, $any($event.target).value)"
-                    />
+                      (change)="updateDraftField(column.key, $any($event.target).value)"
+                    >
+                      <option *ngFor="let option of selectOptions(activeSection(), column.key)" [value]="option">{{ option }}</option>
+                    </select>
+                    <ng-template #projectDraftInput>
+                      <input
+                        [type]="column.type || 'text'"
+                        [value]="draftRow()[column.key] || ''"
+                        (input)="updateDraftField(column.key, $any($event.target).value)"
+                      />
+                    </ng-template>
                   </label>
                 </div>
                 <div class="dialog-actions">
@@ -516,7 +531,8 @@ export class ProjectWorkspacePage {
   openRecordDialog() {
     const row: TableRow = {};
     for (const column of this.columnsFor(this.activeSection())) {
-      row[column.key] = column.key === "site" && this.activeSiteFilter() !== "All" ? this.activeSiteFilter() : "";
+      const options = this.selectOptions(this.activeSection(), column.key);
+      row[column.key] = column.key === "site" && this.activeSiteFilter() !== "All" ? this.activeSiteFilter() : options[0] ?? "";
     }
     this.draftRow.set(row);
     this.recordDialogOpen.set(true);
@@ -748,7 +764,7 @@ export class ProjectWorkspacePage {
         projectId: row.projectId,
         expenseScope: row.type,
         expenseDate: row.date,
-        transactionType: "Site Expense (-)",
+        transactionType: "Site Expense",
         description: row.description,
         amount: formatMoney(-row.spent),
         runningBalance: formatMoney(0),
@@ -778,10 +794,10 @@ export class ProjectWorkspacePage {
       projectId,
       vendorName: vendor.name,
       materialType: vendor.materialType,
+      materialsBought: this.materialPurchaseSummaryForVendor(vendor.name, projectId),
       phoneNumber: vendor.phone,
       address: vendor.address,
       gstNumber: vendor.gst,
-      purchaseHistory: "View History",
     }));
 
     const subcontractors = this.data.subcontractorsForProject(projectId).map((row) => ({
@@ -849,16 +865,18 @@ export class ProjectWorkspacePage {
   }
 
   selectOptions(section: ModuleKey, key: string): string[] {
+    if (key === "site") return this.projectSites();
+    if (section === "labour" && key === "staffName") return this.staffNameOptionsForProject();
     if (section === "expenses" && key === "transactionType") {
       return [
-        "Site Expense (-)",
-        "Material Purchase (-)",
-        "Supervisor Expense (-)",
-        "Cash Added (+)",
-        "Cash Issued to Supervisor (+)",
-        "Payment Received (+)",
-        "Payment Received from Annai Golden Builders Pvt Ltd (+)",
-        "Refund / Return (+)",
+        "Site Expense",
+        "Material Purchase",
+        "Supervisor Expense",
+        "Cash Added",
+        "Cash Issued to Supervisor",
+        "Payment Received",
+        "Payment Received from Annai Golden Builders Pvt Ltd",
+        "Refund / Return",
         "Adjustment",
       ];
     }
@@ -893,7 +911,7 @@ export class ProjectWorkspacePage {
         projectId: this.projectId(),
         site,
         attendanceDate: today,
-        staffName: "",
+        staffName: this.staffNameOptionsForProject()[0] ?? "",
         category: "Mason",
         masonCount: "1",
         helperCount: "0",
@@ -912,7 +930,7 @@ export class ProjectWorkspacePage {
       },
       expenses: {
         expenseDate: today,
-        transactionType: "Site Expense (-)",
+        transactionType: "Site Expense",
         description: "",
         amount: "0",
         runningBalance: formatMoney(0),
@@ -933,10 +951,10 @@ export class ProjectWorkspacePage {
       vendors: {
         vendorName: "",
         materialType: "",
+        materialsBought: formatNumber(0),
         phoneNumber: "",
         address: "",
         gstNumber: "",
-        purchaseHistory: "",
       },
       subcontractors: {
         site,
@@ -1020,6 +1038,24 @@ export class ProjectWorkspacePage {
       normalized.includes("refund") ||
       normalized.includes("credit")
     );
+  }
+
+  private staffNameOptionsForProject(): string[] {
+    const names = new Set<string>();
+    for (const row of this.data.tableRowsFor("labour", this.tableRows().labour, (entry) => this.rowBelongsToProject(entry))) {
+      const name = String(row["staffName"] || row["labourName"] || "").trim();
+      if (name) names.add(name);
+    }
+    ["Velu Mason Party", "Ganesh Plumbing", "Selvam Civil Works", "Balu Helper Team"].forEach((name) => names.add(name));
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }
+
+  private materialPurchaseSummaryForVendor(vendorName: string, projectId: string): string {
+    const rows = this.data
+      .materialsForProject(projectId)
+      .filter((row) => row.vendor.toLowerCase() === vendorName.toLowerCase());
+    const purchased = rows.reduce((sum, row) => sum + row.purchased, 0);
+    return rows.length ? `${formatNumber(rows.length)} records / ${formatNumber(purchased)} purchased` : "0 records";
   }
 
   expenseLedgerScope(): string {
