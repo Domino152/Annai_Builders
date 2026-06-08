@@ -1,6 +1,7 @@
 import { CommonModule } from "@angular/common";
-import { ChangeDetectionStrategy, Component } from "@angular/core";
+import { ChangeDetectionStrategy, Component, inject, signal } from "@angular/core";
 import { IonContent, IonSplitPane } from "@ionic/angular/standalone";
+import { ErpDataService } from "../data/erp-data.service";
 import { EnterpriseHeaderComponent } from "../shared/enterprise-header.component";
 import { EnterpriseSidebarComponent } from "../shared/enterprise-sidebar.component";
 
@@ -76,6 +77,39 @@ import { EnterpriseSidebarComponent } from "../shared/enterprise-sidebar.compone
                 </div>
               </article>
 
+              <article class="settings-card settings-site-profile">
+                <div>
+                  <span>Profile</span>
+                  <h2>Site Directory</h2>
+                  <p>Reusable site names for project forms, labour entries, and site expense filters.</p>
+                </div>
+                <div class="settings-site-chips" aria-label="Saved site names">
+                  <span class="settings-site-chip" *ngFor="let site of profileSites()">
+                    {{ site }}
+                    <button type="button" aria-label="Remove site" (click)="removeProfileSite(site)">
+                      <svg viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
+                        <path d="m5.5 5.5 9 9" />
+                        <path d="m14.5 5.5-9 9" />
+                      </svg>
+                    </button>
+                  </span>
+                </div>
+                <label>
+                  <span>Add Site</span>
+                  <input
+                    list="profile-site-options"
+                    [value]="siteDraft()"
+                    (input)="siteDraft.set($any($event.target).value)"
+                    (keydown.enter)="addProfileSite($event)"
+                    placeholder="Type or choose a site"
+                  />
+                  <datalist id="profile-site-options">
+                    <option *ngFor="let site of allKnownSites()" [value]="site"></option>
+                  </datalist>
+                </label>
+                <button type="button" class="settings-inline-action" (click)="addProfileSite()">Add site</button>
+              </article>
+
               <article class="settings-card">
                 <div>
                   <span>Approvals</span>
@@ -138,4 +172,25 @@ import { EnterpriseSidebarComponent } from "../shared/enterprise-sidebar.compone
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class SettingsPage {}
+export class SettingsPage {
+  private readonly data = inject(ErpDataService);
+
+  readonly profileSites = signal(this.allKnownSites());
+  readonly siteDraft = signal("");
+
+  allKnownSites(): string[] {
+    return [...new Set(this.data.projects().flatMap((project) => project.sites).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  }
+
+  addProfileSite(event?: Event) {
+    event?.preventDefault();
+    const site = this.siteDraft().trim();
+    if (!site) return;
+    this.profileSites.update((sites) => (sites.some((value) => value.toLowerCase() === site.toLowerCase()) ? sites : [...sites, site].sort((a, b) => a.localeCompare(b))));
+    this.siteDraft.set("");
+  }
+
+  removeProfileSite(site: string) {
+    this.profileSites.update((sites) => sites.filter((value) => value !== site));
+  }
+}

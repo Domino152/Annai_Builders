@@ -89,7 +89,12 @@ type SidebarItem = {
               </div>
             </div>
             <button type="button" class="sidebar-logout" aria-label="Logout" (click)="logout()">
-              <ion-icon name="log-out-outline"></ion-icon>
+              <span class="sidebar-logout-avatar" aria-hidden="true">AG</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true" class="svg-icon">
+                <path d="M10 6H6.5A2.5 2.5 0 0 0 4 8.5v7A2.5 2.5 0 0 0 6.5 18H10" />
+                <path d="M14 8l4 4-4 4" />
+                <path d="M18 12H9" />
+              </svg>
               <span>Logout</span>
             </button>
           </div>
@@ -122,6 +127,7 @@ export class EnterpriseSidebarComponent {
     return [
       { key: "dashboard", label: "Dashboard", icon: "grid-outline", route: ["/dashboard"] },
       { key: "clients", label: "Clients", icon: "people-outline", route: ["/clients"] },
+      { key: "approvals", label: "Pending Approvals", icon: "checkmark-done-outline", route: ["/approvals"] },
       { key: "settings", label: "Settings", icon: "settings-outline", route: ["/settings"] },
     ];
   }

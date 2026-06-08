@@ -90,6 +90,7 @@ const dashboardModules: ModuleConfig[] = [
       { key: "client", label: "Client" },
       { key: "clientId", label: "Client ID" },
       { key: "projectId", label: "Project ID" },
+      { key: "project", label: "Project" },
       { key: "site", label: "Site" },
       { key: "attendanceDate", label: "Date" },
       { key: "staffName", label: "Staff Name" },
@@ -103,6 +104,7 @@ const dashboardModules: ModuleConfig[] = [
       { key: "status", label: "Status" },
     ],
     filters: [
+      { key: "project", label: "Project" },
       { key: "site", label: "Site" },
       { key: "attendance", label: "Attendance" },
       { key: "status", label: "Status" },
@@ -298,9 +300,9 @@ const dashboardModules: ModuleConfig[] = [
                 <h1>Dashboard</h1>
               </div>
               <div class="dashboard-kpi-strip dashboard-kpi-board">
-                <div><span>Project Value</span><strong>{{ formatMoney(totalProjectValue()) }}</strong></div>
-                <div><span>Payments</span><strong>{{ formatMoney(totalReceived()) }}</strong></div>
-                <div><span>Pending</span><strong>{{ formatMoney(totalPending()) }}</strong></div>
+                <div><span>Active Projects</span><strong>{{ activeProjectsCount() }}</strong></div>
+                <div><span>Projects On Hold</span><strong>{{ projectsOnHoldCount() }}</strong></div>
+                <div><span>Pending Approval</span><strong>{{ pendingApprovalCount() }}</strong></div>
                 <div><span>Active Clients</span><strong>{{ data.activeClients() }}</strong></div>
               </div>
             </section>
@@ -339,14 +341,36 @@ const dashboardModules: ModuleConfig[] = [
               </div>
 
               <div class="universal-filter-bar">
-                <label *ngFor="let filter of activeConfig().filters">
+                <label *ngFor="let filter of activeConfig().filters" class="filter-select-shell">
                   <span>{{ filter.label }}</span>
-                  <select [value]="selectedFilters()[filter.key] || ''" (change)="setFilter(filter.key, $any($event.target).value)">
-                    <option value="">All</option>
-                    <option *ngFor="let value of filterValues(filter.key)" [value]="value">{{ value }}</option>
-                  </select>
+                  <div class="erp-select-menu filter-select-menu" [class.open]="isFilterMenuOpen(filter.key)">
+                    <button type="button" class="erp-select-trigger" (click)="toggleFilterMenu(filter.key)">
+                      <span>{{ selectedFilters()[filter.key] || 'All' }}</span>
+                      <svg viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
+                        <path d="M5.5 7.5 10 12l4.5-4.5" />
+                      </svg>
+                    </button>
+                    <div class="erp-select-panel" *ngIf="isFilterMenuOpen(filter.key)">
+                      <button type="button" [class.selected]="!selectedFilters()[filter.key]" (click)="setFilter(filter.key, '')">All</button>
+                      <button
+                        *ngFor="let value of filterValues(filter.key)"
+                        type="button"
+                        [class.selected]="selectedFilters()[filter.key] === value"
+                        (click)="setFilter(filter.key, value)"
+                      >
+                        {{ value }}
+                      </button>
+                    </div>
+                  </div>
                 </label>
                 <button type="button" (click)="clearFilters()">Clear filters</button>
+              </div>
+
+              <div class="expense-ledger-summary universal-expense-summary" *ngIf="activeModule() === 'expenses' && expenseFilterBalanceVisible()">
+                <div><span>Project</span><strong>{{ selectedFilters()['project'] }}</strong></div>
+                <div><span>Site</span><strong>{{ selectedFilters()['site'] }}</strong></div>
+                <div><span>Opening Balance</span><strong>{{ expenseFilterOpeningLabel() }}</strong></div>
+                <div><span>Current Balance</span><strong>{{ expenseFilterCurrentLabel() }}</strong></div>
               </div>
 
               <div class="table-meta-strip">
@@ -376,15 +400,28 @@ const dashboardModules: ModuleConfig[] = [
                       >
                         <ng-container *ngIf="activeModule() === 'labour' && column.key === 'labourTypes'; else standardDashboardCell">
                           <div class="labour-types-cell">
-                            <span
-                              class="editable-cell"
-                              contenteditable="true"
-                              spellcheck="false"
-                              (blur)="updateRowCell(row, column.key, $any($event.target).textContent || '')"
-                            >
-                              {{ row[column.key] }}
-                            </span>
-                            <button type="button" (click)="openLabourTypeDialog(row)">Add labor type</button>
+                            <div class="labour-type-chip-row" *ngIf="labourTypeCards(row).length; else emptyUniversalLabourTypes">
+                              <span class="labour-type-chip" *ngFor="let type of labourTypeCards(row)">
+                                <span>{{ type.type }}</span>
+                                <strong>{{ type.count }}</strong>
+                                <button type="button" aria-label="Remove labor type" title="Remove labor type" (click)="removeLabourType(row, type.type)">
+                                  <svg viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
+                                    <path d="m5.5 5.5 9 9" />
+                                    <path d="m14.5 5.5-9 9" />
+                                  </svg>
+                                </button>
+                              </span>
+                            </div>
+                            <ng-template #emptyUniversalLabourTypes>
+                              <span class="labour-type-empty">No labor types</span>
+                            </ng-template>
+                            <button type="button" class="labour-type-add" (click)="openLabourTypeDialog(row)">
+                              <svg viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
+                                <path d="M10 4v12" />
+                                <path d="M4 10h12" />
+                              </svg>
+                              Add labor type
+                            </button>
                           </div>
                         </ng-container>
                         <ng-template #standardDashboardCell>
@@ -406,9 +443,23 @@ const dashboardModules: ModuleConfig[] = [
                                 [class.selected]="option === row[column.key]"
                                 (click)="selectCellOptionForRow(row, column.key, option)"
                               >
+                                <span
+                                  class="select-option-icon"
+                                  *ngIf="selectOptionIcon(option) as icon"
+                                  [class.approve]="icon === 'approve'"
+                                  [class.decline]="icon === 'decline'"
+                                >
+                                  <svg *ngIf="icon === 'approve'" viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
+                                    <path d="m4.5 10.5 3.5 3.5 7.5-8" />
+                                  </svg>
+                                  <svg *ngIf="icon === 'decline'" viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
+                                    <path d="m5.5 5.5 9 9" />
+                                    <path d="m14.5 5.5-9 9" />
+                                  </svg>
+                                </span>
                                 {{ option }}
                               </button>
-                              <label class="custom-select-entry">
+                              <label class="custom-select-entry" *ngIf="allowsCustomOption(activeModule(), column.key)">
                                 <span>Custom</span>
                                 <input
                                   [value]="selectCustomValue()"
@@ -417,7 +468,12 @@ const dashboardModules: ModuleConfig[] = [
                                   placeholder="Type value"
                                 />
                               </label>
-                              <button type="button" class="custom-select-save" (click)="saveCustomSelectOptionForRow(row, column.key)">
+                              <button
+                                *ngIf="allowsCustomOption(activeModule(), column.key)"
+                                type="button"
+                                class="custom-select-save"
+                                (click)="saveCustomSelectOptionForRow(row, column.key)"
+                              >
                                 Use custom value
                               </button>
                             </div>
@@ -479,7 +535,7 @@ const dashboardModules: ModuleConfig[] = [
                   <label *ngFor="let column of columnsForActive()">
                     <span>{{ column.label }}</span>
                     <input
-                      *ngIf="selectOptions(activeModule(), column.key).length > 0; else dashboardDraftInput"
+                      *ngIf="selectOptions(activeModule(), column.key).length > 0 && allowsCustomOption(activeModule(), column.key); else dashboardDraftSelect"
                       [attr.list]="'dashboard-draft-' + activeModule() + '-' + column.key"
                       [type]="column.type || 'text'"
                       [value]="draftRow()[column.key] || ''"
@@ -488,6 +544,15 @@ const dashboardModules: ModuleConfig[] = [
                     <datalist [id]="'dashboard-draft-' + activeModule() + '-' + column.key">
                       <option *ngFor="let option of selectOptions(activeModule(), column.key)" [value]="option"></option>
                     </datalist>
+                    <ng-template #dashboardDraftSelect>
+                      <select
+                        *ngIf="selectOptions(activeModule(), column.key).length > 0; else dashboardDraftInput"
+                        [value]="draftRow()[column.key] || ''"
+                        (change)="updateDraftField(column.key, $any($event.target).value)"
+                      >
+                        <option *ngFor="let option of selectOptions(activeModule(), column.key)" [value]="option">{{ option }}</option>
+                      </select>
+                    </ng-template>
                     <ng-template #dashboardDraftInput>
                       <input [type]="column.type || 'text'" [value]="draftRow()[column.key] || ''" (input)="updateDraftField(column.key, $any($event.target).value)" />
                     </ng-template>
@@ -542,15 +607,10 @@ const dashboardModules: ModuleConfig[] = [
                       list="universal-labour-type-options"
                       [value]="labourTypeName()"
                       (input)="labourTypeName.set($any($event.target).value)"
-                      placeholder="Mason, Helper, Electrician"
+                      placeholder="Type or choose labor type"
                     />
                     <datalist id="universal-labour-type-options">
-                      <option value="Mason"></option>
-                      <option value="Helper"></option>
-                      <option value="Electrician"></option>
-                      <option value="Plumber"></option>
-                      <option value="Mechanic"></option>
-                      <option value="Civil"></option>
+                      <option *ngFor="let option of labourTypeDialogOptions()" [value]="option"></option>
                     </datalist>
                   </label>
                   <label>
@@ -596,6 +656,7 @@ export class UniversalDashboardPage {
   readonly draftRow = signal<TableRow>({});
   readonly newFieldLabel = signal("");
   readonly openSelectKey = signal("");
+  readonly openFilterKey = signal("");
   readonly selectCustomValue = signal("");
   readonly labourTypeDialogOpen = signal(false);
   readonly labourTypeRowId = signal("");
@@ -604,16 +665,16 @@ export class UniversalDashboardPage {
   readonly labourTypeDailyWage = signal("");
   readonly activeConfig = computed(() => dashboardModules.find((module) => module.key === this.activeModule()) ?? dashboardModules[0]);
 
-  totalProjectValue() {
-    return this.data.projects().reduce((sum, project) => sum + project.totalValue, 0);
+  activeProjectsCount() {
+    return this.data.projects().filter((project) => project.status === "Active").length;
   }
 
-  totalReceived() {
-    return this.data.projects().reduce((sum, project) => sum + project.receivedAmount, 0);
+  projectsOnHoldCount() {
+    return this.data.projects().filter((project) => project.status === "On Hold").length;
   }
 
-  totalPending() {
-    return this.totalProjectValue() - this.totalReceived();
+  pendingApprovalCount() {
+    return this.pendingApprovalRows().length;
   }
 
   switchModule(module: DashboardModule) {
@@ -621,6 +682,7 @@ export class UniversalDashboardPage {
     this.searchText.set("");
     this.selectedFilters.set({});
     this.openSelectKey.set("");
+    this.openFilterKey.set("");
   }
 
   columnsForActive(): FieldSchema[] {
@@ -660,8 +722,46 @@ export class UniversalDashboardPage {
     return [...values].sort((a, b) => a.localeCompare(b));
   }
 
+  isFilterMenuOpen(key: string): boolean {
+    return this.openFilterKey() === key;
+  }
+
+  toggleFilterMenu(key: string) {
+    this.openFilterKey.set(this.openFilterKey() === key ? "" : key);
+  }
+
+  expenseFilterBalanceVisible(): boolean {
+    const filters = this.selectedFilters();
+    return Boolean(filters["project"] && filters["site"]);
+  }
+
+  expenseFilterOpeningLabel(): string {
+    const row = this.visibleRows().find((entry) => this.activeModule() === "expenses" && entry["project"] === this.selectedFilters()["project"] && entry["site"] === this.selectedFilters()["site"]);
+    return row ? formatMoney(this.expenseOpeningBalanceFor(row)) : formatMoney(0);
+  }
+
+  expenseFilterCurrentLabel(): string {
+    const rows = this.visibleRows().filter((entry) => entry["project"] === this.selectedFilters()["project"] && entry["site"] === this.selectedFilters()["site"]);
+    const latest = rows.at(-1);
+    return latest ? String(latest["runningBalance"] || formatMoney(0)) : formatMoney(0);
+  }
+
   rowCountFor(module: DashboardModule): number {
     return this.rowsFor(module).length;
+  }
+
+  pendingApprovalRows(): TableRow[] {
+    const modules: DashboardModule[] = ["materials", "labour", "expenses", "generalExpenses", "payments", "subcontractors"];
+    return modules.flatMap((module) =>
+      this.rowsFor(module)
+        .filter((row) => this.isPendingApproval(row))
+        .map((row) => ({ ...row, sourceModule: module, approvalField: row["approvalStatus"] !== undefined ? "approvalStatus" : "status" })),
+    );
+  }
+
+  private isPendingApproval(row: TableRow): boolean {
+    const value = String(row["approvalStatus"] || row["status"] || "").toLowerCase();
+    return value === "pending";
   }
 
   selectedFilterCount(): number {
@@ -684,12 +784,14 @@ export class UniversalDashboardPage {
 
   setFilter(key: string, value: string) {
     this.selectedFilters.update((filters) => ({ ...filters, [key]: value }));
+    this.openFilterKey.set("");
   }
 
   clearFilters() {
     this.selectedFilters.set({});
     this.searchText.set("");
     this.openSelectKey.set("");
+    this.openFilterKey.set("");
   }
 
   openRecordDialog() {
@@ -799,7 +901,7 @@ export class UniversalDashboardPage {
 
   openLabourTypeDialog(row: TableRow) {
     this.labourTypeRowId.set(String(row["__rowId"] || ""));
-    this.labourTypeName.set("Mason");
+    this.labourTypeName.set(this.labourTypeOptionsForRow(row)[0] ?? "");
     this.labourTypeCount.set("1");
     this.labourTypeDailyWage.set("");
     this.labourTypeDialogOpen.set(true);
@@ -824,6 +926,29 @@ export class UniversalDashboardPage {
     this.data.updateSharedRowCell(rowId, "notes", nextTypes);
     if (dailyWage) this.data.updateSharedRowCell(rowId, wageField.key, formatMoney(dailyWage));
     this.closeLabourTypeDialog();
+  }
+
+  labourTypeCards(row: TableRow): Array<{ type: string; count: number; wage: number }> {
+    return this.labourTypeEntriesForRow(row).filter((entry) => entry.count > 0);
+  }
+
+  labourTypeDialogOptions(): string[] {
+    const rowId = this.labourTypeRowId();
+    const row = this.rowsFor("labour").find((entry) => String(entry["__rowId"] || "") === rowId);
+    return row ? this.labourTypeOptionsForRow(row) : [];
+  }
+
+  removeLabourType(row: TableRow, labourType: string) {
+    const rowId = String(row["__rowId"] || "");
+    if (!rowId) return;
+    const remaining = this.labourTypeEntriesForRow(row).filter((entry) => entry.type.toLowerCase() !== labourType.toLowerCase());
+    const nextTypes = remaining.map((entry) => `${entry.type}: ${entry.count}`).join(", ");
+    const nextStaffCount = remaining.reduce((sum, entry) => sum + entry.count, 0);
+    this.data.updateSharedRowCell(rowId, "labourTypes", nextTypes);
+    this.data.updateSharedRowCell(rowId, "notes", nextTypes);
+    this.data.updateSharedRowCell(rowId, "staffCount", nextStaffCount);
+    const wageField = this.data.customFieldsFor("labour").find((field) => field.label.toLowerCase() === `${this.titleCase(labourType)} daily wage`.toLowerCase());
+    if (wageField) this.data.updateSharedRowCell(rowId, wageField.key, "");
   }
 
   deleteRow(row: TableRow) {
@@ -919,6 +1044,7 @@ export class UniversalDashboardPage {
       client: clientName(row.projectId),
       clientId: clientId(row.projectId),
       projectId: row.projectId,
+      project: projectName(row.projectId),
       site: row.site,
       attendanceDate: "2026-06-05",
       staffName: row.party,
@@ -1052,6 +1178,12 @@ export class UniversalDashboardPage {
 
   selectOptions(module: DashboardModule, key: string): string[] {
     if (key === "site") return this.siteOptionsForModule(module);
+    if (key === "project") return this.projectNameOptions();
+    if (key === "projectId") return this.projectIdOptions();
+    if (key === "client" || key === "clientName") return this.clientNameOptions();
+    if (key === "clientId") return this.clientIdOptions();
+    if (key === "address") return this.clientAddressOptions();
+    if (key === "supervisor" || key === "supervisorName" || key === "collectedBy" || key === "paidBy") return this.supervisorNameOptions();
     if (module === "labour" && key === "staffName") return this.staffNameOptions();
     if (module === "expenses" && key === "transactionType") {
       return [
@@ -1068,10 +1200,28 @@ export class UniversalDashboardPage {
     }
     if (module === "labour" && key === "attendance") return ["Present", "Absent"];
     if (module === "labour" && key === "shift") return ["1", "2", "3"];
-    if (key === "approvalStatus" || key === "status") return ["Pending", "Approved", "Rejected"];
+    if (key === "approvalStatus") return ["Approve", "Decline"];
+    if (key === "status") {
+      if (module === "clients") return ["Active", "On Hold", "Completed"];
+      if (module === "supervisors") return ["Active", "On Leave", "Inactive"];
+      if (module === "reports") return ["Ready", "Scheduled", "Archived"];
+      return ["Approve", "Decline"];
+    }
     if (key === "paymentMode") return ["Cash", "NEFT", "UPI", "Bank Transfer", "Cheque"];
     if (key === "paymentStatus") return ["Not Started", "Part Paid", "Paid"];
     return [];
+  }
+
+  allowsCustomOption(module: DashboardModule, key: string): boolean {
+    if (key === "approvalStatus" || key === "status" || key === "paymentStatus" || key === "attendance" || key === "shift") return false;
+    return this.selectOptions(module, key).length > 0;
+  }
+
+  selectOptionIcon(option: string): "approve" | "decline" | "" {
+    const normalized = option.toLowerCase();
+    if (normalized === "approve" || normalized === "approved" || normalized === "active" || normalized === "ready") return "approve";
+    if (normalized === "decline" || normalized === "rejected" || normalized === "inactive") return "decline";
+    return "";
   }
 
   private defaultRowFor(module: DashboardModule): TableRow {
@@ -1253,6 +1403,34 @@ export class UniversalDashboardPage {
     return [...sites].sort((a, b) => a.localeCompare(b));
   }
 
+  private projectNameOptions(): string[] {
+    return this.sortedUnique(this.data.projects().map((project) => project.name));
+  }
+
+  private projectIdOptions(): string[] {
+    return this.sortedUnique(this.data.projects().map((project) => project.id));
+  }
+
+  private clientNameOptions(): string[] {
+    return this.sortedUnique(this.data.clients().map((client) => client.name));
+  }
+
+  private clientIdOptions(): string[] {
+    return this.sortedUnique(this.data.clients().map((client) => client.id));
+  }
+
+  private clientAddressOptions(): string[] {
+    return this.sortedUnique(this.data.clients().map((client) => client.address));
+  }
+
+  private supervisorNameOptions(): string[] {
+    return this.sortedUnique([
+      ...this.data.supervisors().map((supervisor) => supervisor.name),
+      ...this.data.clients().map((client) => client.supervisor),
+      ...this.data.projects().map((project) => project.supervisor),
+    ]);
+  }
+
   private staffNameOptions(): string[] {
     const names = new Set<string>();
     for (const row of this.rowsFor("labour")) {
@@ -1261,6 +1439,10 @@ export class UniversalDashboardPage {
     }
     ["Velu Mason Party", "Ganesh Plumbing", "Selvam Civil Works", "Balu Helper Team"].forEach((name) => names.add(name));
     return [...names].sort((a, b) => a.localeCompare(b));
+  }
+
+  private sortedUnique(values: Array<string | null | undefined>): string[] {
+    return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   }
 
   private materialPurchaseSummaryForVendor(vendorName: string): string {
@@ -1479,6 +1661,20 @@ export class UniversalDashboardPage {
       count: entry.count,
       wage: this.dailyWageForLabourType(row, entry.type, entries.length) || entry.wage,
     }));
+  }
+
+  private labourTypeOptionsForRow(row: TableRow): string[] {
+    const currentTypes = new Set(this.labourTypeEntriesForRow(row).map((entry) => entry.type.toLowerCase()));
+    const projectId = String(row["projectId"] || row["__projectId"] || "");
+    const options = new Set<string>();
+    for (const entry of this.rowsFor("labour")) {
+      if (String(entry["__rowId"] || "") === String(row["__rowId"] || "")) continue;
+      if (projectId && String(entry["projectId"] || entry["__projectId"] || "") !== projectId) continue;
+      for (const type of this.labourTypeEntriesForRow(entry)) {
+        if (!currentTypes.has(type.type.toLowerCase())) options.add(type.type);
+      }
+    }
+    return [...options].sort((a, b) => a.localeCompare(b));
   }
 
   private dailyWageForLabourType(row: TableRow, labourType: string, typeCount: number): number {

@@ -354,15 +354,28 @@ const sectionConfigs: SectionConfig[] = [
                       >
                         <ng-container *ngIf="activeSection() === 'labour' && column.key === 'labourTypes'; else standardProjectCell">
                           <div class="labour-types-cell">
-                            <span
-                              class="editable-cell"
-                              contenteditable="true"
-                              spellcheck="false"
-                              (blur)="updateRowCell(activeSection(), row, column.key, $any($event.target).textContent || '')"
-                            >
-                              {{ row[column.key] }}
-                            </span>
-                            <button type="button" (click)="openLabourTypeDialog(row)">Add labor type</button>
+                            <div class="labour-type-chip-row" *ngIf="labourTypeCards(row).length; else emptyLabourTypes">
+                              <span class="labour-type-chip" *ngFor="let type of labourTypeCards(row)">
+                                <span>{{ type.type }}</span>
+                                <strong>{{ type.count }}</strong>
+                                <button type="button" aria-label="Remove labor type" title="Remove labor type" (click)="removeLabourType(row, type.type)">
+                                  <svg viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
+                                    <path d="m5.5 5.5 9 9" />
+                                    <path d="m14.5 5.5-9 9" />
+                                  </svg>
+                                </button>
+                              </span>
+                            </div>
+                            <ng-template #emptyLabourTypes>
+                              <span class="labour-type-empty">No labor types</span>
+                            </ng-template>
+                            <button type="button" class="labour-type-add" (click)="openLabourTypeDialog(row)">
+                              <svg viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
+                                <path d="M10 4v12" />
+                                <path d="M4 10h12" />
+                              </svg>
+                              Add labor type
+                            </button>
                           </div>
                         </ng-container>
                         <ng-template #standardProjectCell>
@@ -384,6 +397,20 @@ const sectionConfigs: SectionConfig[] = [
                                 [class.selected]="option === row[column.key]"
                                 (click)="selectCellOptionForRow(activeSection(), row, column.key, option)"
                               >
+                                <span
+                                  class="select-option-icon"
+                                  *ngIf="selectOptionIcon(option) as icon"
+                                  [class.approve]="icon === 'approve'"
+                                  [class.decline]="icon === 'decline'"
+                                >
+                                  <svg *ngIf="icon === 'approve'" viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
+                                    <path d="m4.5 10.5 3.5 3.5 7.5-8" />
+                                  </svg>
+                                  <svg *ngIf="icon === 'decline'" viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
+                                    <path d="m5.5 5.5 9 9" />
+                                    <path d="m14.5 5.5-9 9" />
+                                  </svg>
+                                </span>
                                 {{ option }}
                               </button>
                               <label class="custom-select-entry" *ngIf="allowsCustomOption(activeSection(), column.key)">
@@ -548,15 +575,10 @@ const sectionConfigs: SectionConfig[] = [
                       list="project-labour-type-options"
                       [value]="labourTypeName()"
                       (input)="labourTypeName.set($any($event.target).value)"
-                      placeholder="Mason, Helper, Electrician"
+                      placeholder="Type or choose labor type"
                     />
                     <datalist id="project-labour-type-options">
-                      <option value="Mason"></option>
-                      <option value="Helper"></option>
-                      <option value="Electrician"></option>
-                      <option value="Plumber"></option>
-                      <option value="Mechanic"></option>
-                      <option value="Civil"></option>
+                      <option *ngFor="let option of labourTypeDialogOptions()" [value]="option"></option>
                     </datalist>
                   </label>
                   <label>
@@ -828,12 +850,20 @@ export class ProjectWorkspacePage {
   }
 
   allowsCustomOption(section: ModuleKey, key: string): boolean {
+    if (key === "approvalStatus" || key === "status" || key === "paymentStatus" || key === "attendance" || key === "shift") return false;
     return this.selectOptions(section, key).length > 0;
+  }
+
+  selectOptionIcon(option: string): "approve" | "decline" | "" {
+    const normalized = option.toLowerCase();
+    if (normalized === "approve" || normalized === "approved" || normalized === "active" || normalized === "ready") return "approve";
+    if (normalized === "decline" || normalized === "rejected" || normalized === "inactive") return "decline";
+    return "";
   }
 
   openLabourTypeDialog(row: TableRow) {
     this.labourTypeRowId.set(String(row["__rowId"] || ""));
-    this.labourTypeName.set("Mason");
+    this.labourTypeName.set(this.labourTypeOptionsForRow(row)[0] ?? "");
     this.labourTypeCount.set("1");
     this.labourTypeDailyWage.set("");
     this.labourTypeDialogOpen.set(true);
@@ -858,6 +888,29 @@ export class ProjectWorkspacePage {
     this.data.updateSharedRowCell(rowId, "notes", nextTypes);
     if (dailyWage) this.data.updateSharedRowCell(rowId, wageField.key, formatMoney(dailyWage));
     this.closeLabourTypeDialog();
+  }
+
+  labourTypeCards(row: TableRow): Array<{ type: string; count: number; wage: number }> {
+    return this.labourTypeEntriesForRow(row).filter((entry) => entry.count > 0);
+  }
+
+  labourTypeDialogOptions(): string[] {
+    const rowId = this.labourTypeRowId();
+    const row = this.visibleRows("labour").find((entry) => String(entry["__rowId"] || "") === rowId);
+    return row ? this.labourTypeOptionsForRow(row) : [];
+  }
+
+  removeLabourType(row: TableRow, labourType: string) {
+    const rowId = String(row["__rowId"] || "");
+    if (!rowId) return;
+    const remaining = this.labourTypeEntriesForRow(row).filter((entry) => entry.type.toLowerCase() !== labourType.toLowerCase());
+    const nextTypes = remaining.map((entry) => `${entry.type}: ${entry.count}`).join(", ");
+    const nextStaffCount = remaining.reduce((sum, entry) => sum + entry.count, 0);
+    this.data.updateSharedRowCell(rowId, "labourTypes", nextTypes);
+    this.data.updateSharedRowCell(rowId, "notes", nextTypes);
+    this.data.updateSharedRowCell(rowId, "staffCount", nextStaffCount);
+    const wageField = this.data.customFieldsFor("labour").find((field) => field.label.toLowerCase() === `${this.titleCase(labourType)} daily wage`.toLowerCase());
+    if (wageField) this.data.updateSharedRowCell(rowId, wageField.key, "");
   }
 
   exportExcel() {
@@ -1133,7 +1186,7 @@ export class ProjectWorkspacePage {
     }
     if (section === "labour" && key === "attendance") return ["Present", "Absent"];
     if (section === "labour" && key === "shift") return ["1", "2", "3"];
-    if (key === "approvalStatus" || key === "status") return ["Pending", "Approved", "Rejected"];
+    if (key === "approvalStatus" || key === "status") return ["Approve", "Decline"];
     if (key === "paymentMode") return ["Cash", "NEFT", "UPI", "Bank Transfer", "Cheque"];
     if (key === "paymentStatus") return ["Not Started", "Part Paid", "Paid"];
     return [];
@@ -1593,6 +1646,19 @@ export class ProjectWorkspacePage {
       count: entry.count,
       wage: this.dailyWageForLabourType(row, entry.type, entries.length) || entry.wage,
     }));
+  }
+
+  private labourTypeOptionsForRow(row: TableRow): string[] {
+    const currentTypes = new Set(this.labourTypeEntriesForRow(row).map((entry) => entry.type.toLowerCase()));
+    const options = new Set<string>();
+    const rows = this.data.tableRowsFor("labour", this.tableRows().labour, (entry) => this.rowBelongsToProject(entry));
+    for (const entry of rows) {
+      if (String(entry["__rowId"] || "") === String(row["__rowId"] || "")) continue;
+      for (const type of this.labourTypeEntriesForRow(entry)) {
+        if (!currentTypes.has(type.type.toLowerCase())) options.add(type.type);
+      }
+    }
+    return [...options].sort((a, b) => a.localeCompare(b));
   }
 
   private dailyWageForLabourType(row: TableRow, labourType: string, typeCount: number): number {
