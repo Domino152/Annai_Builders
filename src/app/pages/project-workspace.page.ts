@@ -306,6 +306,9 @@ const sectionConfigs: SectionConfig[] = [
                 <span>{{ visibleRows(activeSection()).length }} rows</span>
                 <span>{{ columnsFor(activeSection()).length }} fields</span>
                 <span>Inline editable cells</span>
+                <button type="button" class="meta-reset-action" *ngIf="hiddenFieldCount(activeSection())" (click)="resetFields(activeSection())">
+                  Reset fields
+                </button>
               </div>
 
               <div class="expense-opening-editor" *ngIf="activeSection() === 'expenses'">
@@ -340,7 +343,17 @@ const sectionConfigs: SectionConfig[] = [
                 <table>
                   <thead>
                     <tr>
-                      <th *ngFor="let column of columnsFor(activeSection())">{{ column.label }}</th>
+                      <th *ngFor="let column of columnsFor(activeSection())">
+                        <span class="column-head-inner">
+                          <span>{{ column.label }}</span>
+                          <button type="button" class="column-hide-action" aria-label="Hide column" title="Hide column" (click)="hideField(activeSection(), column.key, $event)">
+                            <svg viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
+                              <path d="m5.5 5.5 9 9" />
+                              <path d="m14.5 5.5-9 9" />
+                            </svg>
+                          </button>
+                        </span>
+                      </th>
                       <th>Actions</th>
                     </tr>
                   </thead>
@@ -416,20 +429,11 @@ const sectionConfigs: SectionConfig[] = [
                               <label class="custom-select-entry" *ngIf="allowsCustomOption(activeSection(), column.key)">
                                 <span>Custom</span>
                                 <input
-                                  [value]="selectCustomValue()"
-                                  (input)="selectCustomValue.set($any($event.target).value)"
-                                  (keydown.enter)="saveCustomSelectOptionForRow(activeSection(), row, column.key, $event)"
-                                  placeholder="Type value"
+                                  #projectCustomValue
+                                  (keydown.enter)="saveCustomSelectOptionForRow(activeSection(), row, column.key, projectCustomValue.value, $event)"
+                                  placeholder="Type value and press Enter"
                                 />
                               </label>
-                              <button
-                                *ngIf="allowsCustomOption(activeSection(), column.key)"
-                                type="button"
-                                class="custom-select-save"
-                                (click)="saveCustomSelectOptionForRow(activeSection(), row, column.key)"
-                              >
-                                Use custom value
-                              </button>
                             </div>
                           </div>
                           <ng-template #editableProjectCell>
@@ -676,7 +680,22 @@ export class ProjectWorkspacePage {
   columnsFor(section: ModuleKey): FieldSchema[] {
     const base = sectionConfigs.find((config) => config.key === section)?.columns ?? [];
     const custom = this.data.customFieldsFor(section);
-    return section === "labour" ? this.withLabourWageColumns(base, custom) : [...base, ...custom];
+    const hidden = new Set(this.data.hiddenFieldsFor(section));
+    const columns = section === "labour" ? this.withLabourWageColumns(base, custom) : [...base, ...custom];
+    return columns.filter((column) => !hidden.has(column.key));
+  }
+
+  hiddenFieldCount(section: ModuleKey): number {
+    return this.data.hiddenFieldsFor(section).length;
+  }
+
+  hideField(section: ModuleKey, key: string, event?: Event) {
+    event?.stopPropagation();
+    this.data.hideTableField(section, key);
+  }
+
+  resetFields(section: ModuleKey) {
+    this.data.resetTableFields(section);
   }
 
   private withLabourWageColumns(base: FieldSchema[], custom: FieldSchema[]): FieldSchema[] {
@@ -835,22 +854,22 @@ export class ProjectWorkspacePage {
     this.selectCustomValue.set("");
   }
 
-  saveCustomSelectOption(section: ModuleKey, visibleIndex: number, key: string, event?: Event) {
+  saveCustomSelectOption(section: ModuleKey, visibleIndex: number, key: string, value: string, event?: Event) {
     event?.preventDefault();
-    const value = this.selectCustomValue().trim();
-    if (!value) return;
-    this.selectCellOption(section, visibleIndex, key, value);
+    const trimmedValue = value.trim();
+    if (!trimmedValue) return;
+    this.selectCellOption(section, visibleIndex, key, trimmedValue);
   }
 
-  saveCustomSelectOptionForRow(section: ModuleKey, row: TableRow, key: string, event?: Event) {
+  saveCustomSelectOptionForRow(section: ModuleKey, row: TableRow, key: string, value: string, event?: Event) {
     event?.preventDefault();
-    const value = this.selectCustomValue().trim();
-    if (!value) return;
-    this.selectCellOptionForRow(section, row, key, value);
+    const trimmedValue = value.trim();
+    if (!trimmedValue) return;
+    this.selectCellOptionForRow(section, row, key, trimmedValue);
   }
 
   allowsCustomOption(section: ModuleKey, key: string): boolean {
-    if (key === "approvalStatus" || key === "status" || key === "paymentStatus" || key === "attendance" || key === "shift") return false;
+    if (key === "site" || key === "approvalStatus" || key === "status" || key === "paymentStatus" || key === "attendance") return false;
     return this.selectOptions(section, key).length > 0;
   }
 
@@ -1185,7 +1204,6 @@ export class ProjectWorkspacePage {
       ];
     }
     if (section === "labour" && key === "attendance") return ["Present", "Absent"];
-    if (section === "labour" && key === "shift") return ["1", "2", "3"];
     if (key === "approvalStatus" || key === "status") return ["Approve", "Decline"];
     if (key === "paymentMode") return ["Cash", "NEFT", "UPI", "Bank Transfer", "Cheque"];
     if (key === "paymentStatus") return ["Not Started", "Part Paid", "Paid"];
@@ -1560,9 +1578,9 @@ export class ProjectWorkspacePage {
     const match = rows.find((row) => {
       const rowProjectId = String(row["projectId"] || row["__projectId"] || this.projectId());
       const rowSite = String(row["site"] || "").trim().toLowerCase();
-      return rowProjectId === projectId && rowSite === normalizedSite && (this.moneyNumber(row["openingBalance"]) || this.moneyNumber(row["cashIssued"]));
+      return rowProjectId === projectId && rowSite === normalizedSite && this.moneyNumber(row["openingBalance"]);
     });
-    return match ? this.moneyNumber(match["openingBalance"]) || this.moneyNumber(match["cashIssued"]) : 0;
+    return match ? this.moneyNumber(match["openingBalance"]) : 0;
   }
 
   private expenseEditableSite(): string {
@@ -1649,13 +1667,11 @@ export class ProjectWorkspacePage {
   }
 
   private labourTypeOptionsForRow(row: TableRow): string[] {
-    const currentTypes = new Set(this.labourTypeEntriesForRow(row).map((entry) => entry.type.toLowerCase()));
     const options = new Set<string>();
     const rows = this.data.tableRowsFor("labour", this.tableRows().labour, (entry) => this.rowBelongsToProject(entry));
     for (const entry of rows) {
-      if (String(entry["__rowId"] || "") === String(row["__rowId"] || "")) continue;
       for (const type of this.labourTypeEntriesForRow(entry)) {
-        if (!currentTypes.has(type.type.toLowerCase())) options.add(type.type);
+        options.add(type.type);
       }
     }
     return [...options].sort((a, b) => a.localeCompare(b));
@@ -1665,9 +1681,31 @@ export class ProjectWorkspacePage {
     const label = `${this.titleCase(labourType)} Daily Wage`.toLowerCase();
     const generatedKey = label.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     const field = this.data.customFieldsFor("labour").find((candidate) => candidate.label.toLowerCase() === label);
-    const wage = this.moneyNumber(row[field?.key ?? generatedKey]);
+    const wage = this.moneyNumber(row[field?.key ?? generatedKey]) || this.moneyNumber(row[generatedKey]);
     if (wage) return wage;
-    return typeCount === 1 ? this.moneyNumber(row["dailyWage"]) : 0;
+    const rowWage = this.moneyNumber(row["dailyWage"]);
+    if (rowWage) return rowWage;
+    return this.historicalDailyWageForLabourType(row, labourType) || (typeCount === 1 ? this.moneyNumber(row["weeklyPayable"]) : 0);
+  }
+
+  private historicalDailyWageForLabourType(row: TableRow, labourType: string): number {
+    const rowId = String(row["__rowId"] || "");
+    const normalizedType = labourType.toLowerCase();
+    const projectId = String(row["projectId"] || row["__projectId"] || this.projectId());
+    const wageField = this.data.customFieldsFor("labour").find((field) => field.label.toLowerCase() === `${this.titleCase(labourType)} daily wage`.toLowerCase());
+    const rows = this.data.tableRowsFor("labour", this.tableRows().labour, (entry) => this.rowBelongsToProject(entry));
+    for (const candidate of rows) {
+      if (String(candidate["__rowId"] || "") === rowId) continue;
+      if (String(candidate["projectId"] || candidate["__projectId"] || projectId) !== projectId) continue;
+      const hasType = String(candidate["labourTypes"] || candidate["notes"] || "")
+        .split(/[,;\n]+/)
+        .map((part) => this.parseLabourTypeEntrySafe(part))
+        .some((entry) => entry?.type.toLowerCase() === normalizedType);
+      if (!hasType) continue;
+      const wage = this.moneyNumber(candidate[wageField?.key ?? ""]) || this.moneyNumber(candidate["dailyWage"]);
+      if (wage) return wage;
+    }
+    return 0;
   }
 
   private labourSummaryHtml(rows: TableRow[]): string {
@@ -1752,6 +1790,7 @@ export class ProjectWorkspacePage {
     .summary div:last-child { border-bottom: 0; padding-bottom: 0; }
     footer { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; margin-top: 48px; font-size: 12px; }
     footer div { padding-top: 34px; border-top: 1px solid #94a3b8; text-align: center; color: #526070; }
+    .print-action { margin-top: 18px; border: 0; border-radius: 8px; background: #002263; color: #fff; padding: 10px 14px; font-weight: 800; }
     @media print { body { margin: 18mm; } button { display: none; } }
   </style>
 </head>
@@ -1765,8 +1804,8 @@ export class ProjectWorkspacePage {
     <tbody>${tableRows || `<tr><td colspan="${config.columns.length}">No records</td></tr>`}</tbody>
   </table>
   ${config.summary}
+  <button class="print-action" onclick="window.print()">Print / Save PDF</button>
   <footer><div>Prepared By</div><div>Verified By</div><div>Approved / Stamp</div></footer>
-  <script>window.addEventListener('load', () => setTimeout(() => window.print(), 150));</script>
 </body>
 </html>`);
     reportWindow.document.close();

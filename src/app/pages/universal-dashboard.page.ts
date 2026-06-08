@@ -95,6 +95,7 @@ const dashboardModules: ModuleConfig[] = [
       { key: "attendanceDate", label: "Date" },
       { key: "staffName", label: "Staff Name" },
       { key: "labourTypes", label: "Labour Types" },
+      { key: "notes", label: "Notes" },
       { key: "staffCount", label: "Staff Count" },
       { key: "attendance", label: "Attendance" },
       { key: "shift", label: "Shift" },
@@ -379,13 +380,26 @@ const dashboardModules: ModuleConfig[] = [
                 <span>{{ selectedFilterCount() }} active filters</span>
                 <span *ngIf="activeModule() === 'clients'">Customer records synced</span>
                 <span *ngIf="activeModule() === 'expenses'">Balances grouped by Project + Site</span>
+                <button type="button" class="meta-reset-action" *ngIf="hiddenFieldCount(activeModule())" (click)="resetFields(activeModule())">
+                  Reset fields
+                </button>
               </div>
 
               <div class="table-wrap operations-table universal-table">
                 <table>
                   <thead>
                     <tr>
-                      <th *ngFor="let column of columnsForActive()">{{ column.label }}</th>
+                      <th *ngFor="let column of columnsForActive()">
+                        <span class="column-head-inner">
+                          <span>{{ column.label }}</span>
+                          <button type="button" class="column-hide-action" aria-label="Hide column" title="Hide column" (click)="hideField(activeModule(), column.key, $event)">
+                            <svg viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
+                              <path d="m5.5 5.5 9 9" />
+                              <path d="m14.5 5.5-9 9" />
+                            </svg>
+                          </button>
+                        </span>
+                      </th>
                       <th>Actions</th>
                     </tr>
                   </thead>
@@ -462,20 +476,11 @@ const dashboardModules: ModuleConfig[] = [
                               <label class="custom-select-entry" *ngIf="allowsCustomOption(activeModule(), column.key)">
                                 <span>Custom</span>
                                 <input
-                                  [value]="selectCustomValue()"
-                                  (input)="selectCustomValue.set($any($event.target).value)"
-                                  (keydown.enter)="saveCustomSelectOptionForRow(row, column.key, $event)"
-                                  placeholder="Type value"
+                                  #dashboardCustomValue
+                                  (keydown.enter)="saveCustomSelectOptionForRow(row, column.key, dashboardCustomValue.value, $event)"
+                                  placeholder="Type value and press Enter"
                                 />
                               </label>
-                              <button
-                                *ngIf="allowsCustomOption(activeModule(), column.key)"
-                                type="button"
-                                class="custom-select-save"
-                                (click)="saveCustomSelectOptionForRow(row, column.key)"
-                              >
-                                Use custom value
-                              </button>
                             </div>
                           </div>
                           <ng-template #editableDashboardCell>
@@ -688,7 +693,22 @@ export class UniversalDashboardPage {
   columnsForActive(): FieldSchema[] {
     const base = this.activeConfig().columns;
     const custom = this.data.customFieldsFor(this.activeModule());
-    return this.activeModule() === "labour" ? this.withLabourWageColumns(base, custom) : [...base, ...custom];
+    const hidden = new Set(this.data.hiddenFieldsFor(this.activeModule()));
+    const columns = this.activeModule() === "labour" ? this.withLabourWageColumns(base, custom) : [...base, ...custom];
+    return columns.filter((column) => !hidden.has(column.key));
+  }
+
+  hiddenFieldCount(module: DashboardModule): number {
+    return this.data.hiddenFieldsFor(module).length;
+  }
+
+  hideField(module: DashboardModule, key: string, event?: Event) {
+    event?.stopPropagation();
+    this.data.hideTableField(module, key);
+  }
+
+  resetFields(module: DashboardModule) {
+    this.data.resetTableFields(module);
   }
 
   private withLabourWageColumns(base: FieldSchema[], custom: FieldSchema[]): FieldSchema[] {
@@ -892,11 +912,11 @@ export class UniversalDashboardPage {
     this.selectCustomValue.set("");
   }
 
-  saveCustomSelectOptionForRow(row: TableRow, key: string, event?: Event) {
+  saveCustomSelectOptionForRow(row: TableRow, key: string, value: string, event?: Event) {
     event?.preventDefault();
-    const value = this.selectCustomValue().trim();
-    if (!value) return;
-    this.selectCellOptionForRow(row, key, value);
+    const trimmedValue = value.trim();
+    if (!trimmedValue) return;
+    this.selectCellOptionForRow(row, key, trimmedValue);
   }
 
   openLabourTypeDialog(row: TableRow) {
@@ -1199,7 +1219,6 @@ export class UniversalDashboardPage {
       ];
     }
     if (module === "labour" && key === "attendance") return ["Present", "Absent"];
-    if (module === "labour" && key === "shift") return ["1", "2", "3"];
     if (key === "approvalStatus") return ["Approve", "Decline"];
     if (key === "status") {
       if (module === "clients") return ["Active", "On Hold", "Completed"];
@@ -1213,7 +1232,7 @@ export class UniversalDashboardPage {
   }
 
   allowsCustomOption(module: DashboardModule, key: string): boolean {
-    if (key === "approvalStatus" || key === "status" || key === "paymentStatus" || key === "attendance" || key === "shift") return false;
+    if (key === "site" || key === "approvalStatus" || key === "status" || key === "paymentStatus" || key === "attendance") return false;
     return this.selectOptions(module, key).length > 0;
   }
 
@@ -1375,6 +1394,7 @@ export class UniversalDashboardPage {
       ...row,
       staffName: row["staffName"] || row["labourName"] || "",
       labourTypes,
+      notes: labourTypes || row["notes"] || "",
       attendance,
       shift: this.normalizeShift(row["shift"]),
       staffCount,
@@ -1585,9 +1605,9 @@ export class UniversalDashboardPage {
       const rowProjectName = String(row["project"] || "");
       const rowSite = String(row["site"] || "").trim().toLowerCase();
       const sameProject = projectId ? rowProjectId === projectId : rowProjectName === projectName;
-      return sameProject && rowSite === normalizedSite && (this.moneyNumber(row["openingBalance"]) || this.moneyNumber(row["cashIssued"]));
+      return sameProject && rowSite === normalizedSite && this.moneyNumber(row["openingBalance"]);
     });
-    return match ? this.moneyNumber(match["openingBalance"]) || this.moneyNumber(match["cashIssued"]) : 0;
+    return match ? this.moneyNumber(match["openingBalance"]) : 0;
   }
 
   private reportColumns(module: DashboardModule): FieldSchema[] {
@@ -1664,14 +1684,12 @@ export class UniversalDashboardPage {
   }
 
   private labourTypeOptionsForRow(row: TableRow): string[] {
-    const currentTypes = new Set(this.labourTypeEntriesForRow(row).map((entry) => entry.type.toLowerCase()));
     const projectId = String(row["projectId"] || row["__projectId"] || "");
     const options = new Set<string>();
     for (const entry of this.rowsFor("labour")) {
-      if (String(entry["__rowId"] || "") === String(row["__rowId"] || "")) continue;
       if (projectId && String(entry["projectId"] || entry["__projectId"] || "") !== projectId) continue;
       for (const type of this.labourTypeEntriesForRow(entry)) {
-        if (!currentTypes.has(type.type.toLowerCase())) options.add(type.type);
+        options.add(type.type);
       }
     }
     return [...options].sort((a, b) => a.localeCompare(b));
@@ -1681,9 +1699,30 @@ export class UniversalDashboardPage {
     const label = `${this.titleCase(labourType)} Daily Wage`.toLowerCase();
     const generatedKey = label.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     const field = this.data.customFieldsFor("labour").find((candidate) => candidate.label.toLowerCase() === label);
-    const wage = this.moneyNumber(row[field?.key ?? generatedKey]);
+    const wage = this.moneyNumber(row[field?.key ?? generatedKey]) || this.moneyNumber(row[generatedKey]);
     if (wage) return wage;
-    return typeCount === 1 ? this.moneyNumber(row["dailyWage"]) : 0;
+    const rowWage = this.moneyNumber(row["dailyWage"]);
+    if (rowWage) return rowWage;
+    return this.historicalDailyWageForLabourType(row, labourType) || (typeCount === 1 ? this.moneyNumber(row["weeklyPayable"]) : 0);
+  }
+
+  private historicalDailyWageForLabourType(row: TableRow, labourType: string): number {
+    const rowId = String(row["__rowId"] || "");
+    const normalizedType = labourType.toLowerCase();
+    const projectId = String(row["projectId"] || row["__projectId"] || "");
+    const wageField = this.data.customFieldsFor("labour").find((field) => field.label.toLowerCase() === `${this.titleCase(labourType)} daily wage`.toLowerCase());
+    for (const candidate of this.rowsFor("labour")) {
+      if (String(candidate["__rowId"] || "") === rowId) continue;
+      if (projectId && String(candidate["projectId"] || candidate["__projectId"] || "") !== projectId) continue;
+      const hasType = String(candidate["labourTypes"] || candidate["notes"] || "")
+        .split(/[,;\n]+/)
+        .map((part) => this.parseLabourTypeEntrySafe(part))
+        .some((entry) => entry?.type.toLowerCase() === normalizedType);
+      if (!hasType) continue;
+      const wage = this.moneyNumber(candidate[wageField?.key ?? ""]) || this.moneyNumber(candidate["dailyWage"]);
+      if (wage) return wage;
+    }
+    return 0;
   }
 
   private labourSummaryHtml(rows: TableRow[]): string {
@@ -1768,6 +1807,7 @@ export class UniversalDashboardPage {
     .summary div:last-child { border-bottom: 0; padding-bottom: 0; }
     footer { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; margin-top: 48px; font-size: 12px; }
     footer div { padding-top: 34px; border-top: 1px solid #94a3b8; text-align: center; color: #526070; }
+    .print-action { margin-top: 18px; border: 0; border-radius: 8px; background: #002263; color: #fff; padding: 10px 14px; font-weight: 800; }
     @media print { body { margin: 18mm; } button { display: none; } }
   </style>
 </head>
@@ -1781,8 +1821,8 @@ export class UniversalDashboardPage {
     <tbody>${tableRows || `<tr><td colspan="${config.columns.length}">No records</td></tr>`}</tbody>
   </table>
   ${config.summary}
+  <button class="print-action" onclick="window.print()">Print / Save PDF</button>
   <footer><div>Prepared By</div><div>Verified By</div><div>Approved / Stamp</div></footer>
-  <script>window.addEventListener('load', () => setTimeout(() => window.print(), 150));</script>
 </body>
 </html>`);
     reportWindow.document.close();

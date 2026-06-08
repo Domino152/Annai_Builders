@@ -298,6 +298,9 @@ export class ErpDataService {
   );
   readonly tableCellEdits = signal<Record<string, SharedTableRow>>(this.readState<Record<string, SharedTableRow>>("tableCellEdits", {}));
   readonly hiddenTableRows = signal<string[]>(this.readState<string[]>("hiddenTableRows", []));
+  readonly hiddenTableFields = signal<Record<SharedModuleKey, string[]>>(
+    this.readState<Record<SharedModuleKey, string[]>>("hiddenTableFields", this.emptyHiddenFieldMap()),
+  );
   readonly expenseOpeningBalances = signal<Record<string, number>>(this.readState<Record<string, number>>("expenseOpeningBalances", {}));
 
   constructor() {
@@ -315,6 +318,7 @@ export class ErpDataService {
     effect(() => this.writeState("customTableRows", this.customTableRows()));
     effect(() => this.writeState("tableCellEdits", this.tableCellEdits()));
     effect(() => this.writeState("hiddenTableRows", this.hiddenTableRows()));
+    effect(() => this.writeState("hiddenTableFields", this.hiddenTableFields()));
     effect(() => this.writeState("expenseOpeningBalances", this.expenseOpeningBalances()));
   }
 
@@ -782,6 +786,22 @@ export class ErpDataService {
     return this.customTableFields()[module] ?? [];
   }
 
+  hiddenFieldsFor(module: SharedModuleKey): string[] {
+    return this.hiddenTableFields()[module] ?? [];
+  }
+
+  hideTableField(module: SharedModuleKey, key: string) {
+    if (!key) return;
+    this.hiddenTableFields.update((fields) => {
+      const hidden = fields[module] ?? [];
+      return hidden.includes(key) ? fields : { ...fields, [module]: [...hidden, key] };
+    });
+  }
+
+  resetTableFields(module: SharedModuleKey) {
+    this.hiddenTableFields.update((fields) => ({ ...fields, [module]: [] }));
+  }
+
   addCustomField(module: SharedModuleKey, label: string, existingColumns: SharedTableField[] = []): SharedTableField {
     const field: SharedTableField = {
       key: this.fieldKey(label, [...existingColumns, ...this.customFieldsFor(module)]),
@@ -935,6 +955,22 @@ export class ErpDataService {
   }
 
   private emptySharedRowMap(): Record<SharedModuleKey, SharedTableRow[]> {
+    return {
+      materials: [],
+      clients: [],
+      labour: [],
+      expenses: [],
+      generalExpenses: [],
+      payments: [],
+      vendors: [],
+      supervisors: [],
+      subcontractors: [],
+      reports: [],
+      settings: [],
+    };
+  }
+
+  private emptyHiddenFieldMap(): Record<SharedModuleKey, string[]> {
     return {
       materials: [],
       clients: [],
