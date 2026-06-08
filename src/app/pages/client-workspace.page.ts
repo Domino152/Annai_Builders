@@ -222,6 +222,7 @@ export class ClientWorkspacePage {
       supervisor: project.supervisor,
       totalValue: project.totalValue,
       advanceAmount: project.advanceAmount,
+      openingBalance: project.expenseBalance,
       status: project.status,
     };
   }
@@ -229,14 +230,16 @@ export class ClientWorkspacePage {
   saveProject(value: ProjectFormValue) {
     const currentClient = this.client();
     if (!currentClient || !value.name || !value.startDate || !value.supervisor || !value.totalValue) return;
+    const { openingBalance, ...projectValue } = value;
     const editing = this.editingProject();
     if (editing) {
-      this.data.updateProject(editing.id, value);
+      const updated = this.data.updateProject(editing.id, { ...projectValue, expenseBalance: openingBalance });
+      this.data.setExpenseOpeningBalance(editing.id, updated?.sites[0] ?? editing.sites[0] ?? "Main Site", openingBalance);
       this.editingProject.set(null);
       this.showProjectForm.set(false);
       return;
     }
-    const project = this.data.addProject(currentClient, value);
+    const project = this.data.addProject(currentClient, { ...projectValue, openingBalance });
     this.showProjectForm.set(false);
     setTimeout(() => void this.router.navigate(["/clients", currentClient.id, "projects", project.id]));
   }

@@ -285,7 +285,7 @@ const dashboardModules: ModuleConfig[] = [
           title="Dashboard"
           eyebrow="Universal Records"
           metaLabel=""
-          [blurred]="recordDialogOpen() || fieldDialogOpen()"
+          [blurred]="recordDialogOpen() || fieldDialogOpen() || labourTypeDialogOpen()"
           [showTitle]="false"
           role="Admin"
           searchPlaceholder="Search universal dashboard..."
@@ -371,29 +371,67 @@ const dashboardModules: ModuleConfig[] = [
                         *ngFor="let column of columnsForActive()"
                         [class.readonly-cell]="isReadonlyColumn(column.key)"
                         [class.select-cell]="selectOptions(activeModule(), column.key).length > 0"
+                        [class.labour-types-cell-host]="activeModule() === 'labour' && column.key === 'labourTypes'"
                         spellcheck="false"
                       >
-                        <ng-container *ngIf="selectOptions(activeModule(), column.key).length > 0; else editableDashboardCell">
-                          <input
-                            class="table-combo-input"
-                            [attr.list]="'dashboard-cell-' + activeModule() + '-' + column.key"
-                            [value]="row[column.key] || ''"
-                            (input)="updateRowCell(row, column.key, $any($event.target).value)"
-                            (blur)="updateRowCell(row, column.key, $any($event.target).value)"
-                          />
-                          <datalist [id]="'dashboard-cell-' + activeModule() + '-' + column.key">
-                            <option *ngFor="let option of selectOptions(activeModule(), column.key)" [value]="option"></option>
-                          </datalist>
+                        <ng-container *ngIf="activeModule() === 'labour' && column.key === 'labourTypes'; else standardDashboardCell">
+                          <div class="labour-types-cell">
+                            <span
+                              class="editable-cell"
+                              contenteditable="true"
+                              spellcheck="false"
+                              (blur)="updateRowCell(row, column.key, $any($event.target).textContent || '')"
+                            >
+                              {{ row[column.key] }}
+                            </span>
+                            <button type="button" (click)="openLabourTypeDialog(row)">Add labor type</button>
+                          </div>
                         </ng-container>
-                        <ng-template #editableDashboardCell>
-                          <span
-                            class="editable-cell"
-                            [attr.contenteditable]="isReadonlyColumn(column.key) ? null : 'true'"
-                            spellcheck="false"
-                            (blur)="!isReadonlyColumn(column.key) && updateRowCell(row, column.key, $any($event.target).textContent || '')"
+                        <ng-template #standardDashboardCell>
+                          <div
+                            *ngIf="selectOptions(activeModule(), column.key).length > 0; else editableDashboardCell"
+                            class="erp-select-menu"
+                            [class.open]="isSelectMenuOpen(row, column.key)"
                           >
-                            {{ row[column.key] }}
-                          </span>
+                            <button type="button" class="erp-select-trigger" (click)="toggleSelectMenu(row, column.key)">
+                              <span>{{ row[column.key] || 'Select' }}</span>
+                              <svg viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
+                                <path d="M5.5 7.5 10 12l4.5-4.5" />
+                              </svg>
+                            </button>
+                            <div class="erp-select-panel" *ngIf="isSelectMenuOpen(row, column.key)">
+                              <button
+                                *ngFor="let option of selectOptions(activeModule(), column.key)"
+                                type="button"
+                                [class.selected]="option === row[column.key]"
+                                (click)="selectCellOptionForRow(row, column.key, option)"
+                              >
+                                {{ option }}
+                              </button>
+                              <label class="custom-select-entry">
+                                <span>Custom</span>
+                                <input
+                                  [value]="selectCustomValue()"
+                                  (input)="selectCustomValue.set($any($event.target).value)"
+                                  (keydown.enter)="saveCustomSelectOptionForRow(row, column.key, $event)"
+                                  placeholder="Type value"
+                                />
+                              </label>
+                              <button type="button" class="custom-select-save" (click)="saveCustomSelectOptionForRow(row, column.key)">
+                                Use custom value
+                              </button>
+                            </div>
+                          </div>
+                          <ng-template #editableDashboardCell>
+                            <span
+                              class="editable-cell"
+                              [attr.contenteditable]="isReadonlyColumn(column.key) ? null : 'true'"
+                              spellcheck="false"
+                              (blur)="!isReadonlyColumn(column.key) && updateRowCell(row, column.key, $any($event.target).textContent || '')"
+                            >
+                              {{ row[column.key] }}
+                            </span>
+                          </ng-template>
                         </ng-template>
                       </td>
                       <td class="row-actions">
@@ -485,6 +523,58 @@ const dashboardModules: ModuleConfig[] = [
                 </div>
               </form>
             </section>
+
+            <section class="form-overlay" *ngIf="labourTypeDialogOpen()">
+              <form class="erp-dialog labour-type-dialog" (submit)="saveLabourType($event)">
+                <div class="dialog-head">
+                  <div>
+                    <span>Labour</span>
+                    <h2>Add Labor Type</h2>
+                  </div>
+                  <button type="button" class="icon-button" (click)="closeLabourTypeDialog()">
+                    <ion-icon name="close-outline"></ion-icon>
+                  </button>
+                </div>
+                <div class="erp-form">
+                  <label>
+                    <span>Labor Type</span>
+                    <input
+                      list="universal-labour-type-options"
+                      [value]="labourTypeName()"
+                      (input)="labourTypeName.set($any($event.target).value)"
+                      placeholder="Mason, Helper, Electrician"
+                    />
+                    <datalist id="universal-labour-type-options">
+                      <option value="Mason"></option>
+                      <option value="Helper"></option>
+                      <option value="Electrician"></option>
+                      <option value="Plumber"></option>
+                      <option value="Mechanic"></option>
+                      <option value="Civil"></option>
+                    </datalist>
+                  </label>
+                  <label>
+                    <span>Staff Count</span>
+                    <input type="number" min="0" [value]="labourTypeCount()" (input)="labourTypeCount.set($any($event.target).value)" />
+                  </label>
+                  <label>
+                    <span>Daily Wage</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="50"
+                      [value]="labourTypeDailyWage()"
+                      (input)="labourTypeDailyWage.set($any($event.target).value)"
+                      placeholder="950"
+                    />
+                  </label>
+                </div>
+                <div class="dialog-actions">
+                  <button type="button" class="secondary-action" (click)="closeLabourTypeDialog()">Cancel</button>
+                  <button type="submit" class="primary-action">Add Labor Type</button>
+                </div>
+              </form>
+            </section>
           </main>
         </ion-content>
       </div>
@@ -505,6 +595,13 @@ export class UniversalDashboardPage {
   readonly fieldDialogOpen = signal(false);
   readonly draftRow = signal<TableRow>({});
   readonly newFieldLabel = signal("");
+  readonly openSelectKey = signal("");
+  readonly selectCustomValue = signal("");
+  readonly labourTypeDialogOpen = signal(false);
+  readonly labourTypeRowId = signal("");
+  readonly labourTypeName = signal("Mason");
+  readonly labourTypeCount = signal("1");
+  readonly labourTypeDailyWage = signal("");
   readonly activeConfig = computed(() => dashboardModules.find((module) => module.key === this.activeModule()) ?? dashboardModules[0]);
 
   totalProjectValue() {
@@ -523,6 +620,7 @@ export class UniversalDashboardPage {
     this.activeModule.set(module);
     this.searchText.set("");
     this.selectedFilters.set({});
+    this.openSelectKey.set("");
   }
 
   columnsForActive(): FieldSchema[] {
@@ -579,6 +677,7 @@ export class UniversalDashboardPage {
   clearFilters() {
     this.selectedFilters.set({});
     this.searchText.set("");
+    this.openSelectKey.set("");
   }
 
   openRecordDialog() {
@@ -657,6 +756,62 @@ export class UniversalDashboardPage {
     if (!rowId) return;
     this.data.updateSharedRowCell(rowId, key, trimmedValue);
     if (module === "labour" && key === "labourTypes") this.data.updateSharedRowCell(rowId, "notes", trimmedValue);
+  }
+
+  selectCellKey(row: TableRow, key: string): string {
+    return `${row["__rowId"] || row["clientId"] || "row"}:${key}`;
+  }
+
+  isSelectMenuOpen(row: TableRow, key: string): boolean {
+    return this.openSelectKey() === this.selectCellKey(row, key);
+  }
+
+  toggleSelectMenu(row: TableRow, key: string) {
+    const nextKey = this.selectCellKey(row, key);
+    this.openSelectKey.set(this.openSelectKey() === nextKey ? "" : nextKey);
+    this.selectCustomValue.set("");
+  }
+
+  selectCellOptionForRow(row: TableRow, key: string, value: string) {
+    this.updateRowCell(row, key, value);
+    this.openSelectKey.set("");
+    this.selectCustomValue.set("");
+  }
+
+  saveCustomSelectOptionForRow(row: TableRow, key: string, event?: Event) {
+    event?.preventDefault();
+    const value = this.selectCustomValue().trim();
+    if (!value) return;
+    this.selectCellOptionForRow(row, key, value);
+  }
+
+  openLabourTypeDialog(row: TableRow) {
+    this.labourTypeRowId.set(String(row["__rowId"] || ""));
+    this.labourTypeName.set("Mason");
+    this.labourTypeCount.set("1");
+    this.labourTypeDailyWage.set("");
+    this.labourTypeDialogOpen.set(true);
+  }
+
+  closeLabourTypeDialog() {
+    this.labourTypeDialogOpen.set(false);
+    this.labourTypeRowId.set("");
+  }
+
+  saveLabourType(event: Event) {
+    event.preventDefault();
+    const rowId = this.labourTypeRowId();
+    const type = this.labourTypeName().trim();
+    const count = Math.max(0, Math.round(this.moneyNumber(this.labourTypeCount())));
+    const dailyWage = Math.max(0, this.moneyNumber(this.labourTypeDailyWage()));
+    if (!rowId || !type || !count) return;
+    const row = this.rowsFor("labour").find((entry) => String(entry["__rowId"] || "") === rowId);
+    const nextTypes = this.mergeLabourType(String(row?.["labourTypes"] || ""), type, count, dailyWage);
+    const wageField = this.ensureLabourWageField(type);
+    this.data.updateSharedRowCell(rowId, "labourTypes", nextTypes);
+    this.data.updateSharedRowCell(rowId, "notes", nextTypes);
+    if (dailyWage) this.data.updateSharedRowCell(rowId, wageField.key, formatMoney(dailyWage));
+    this.closeLabourTypeDialog();
   }
 
   deleteRow(row: TableRow) {
@@ -1034,7 +1189,7 @@ export class UniversalDashboardPage {
 
   private withExpenseBalances(rows: TableRow[]): TableRow[] {
     const balances = new Map<string, number>();
-    return rows.map((row) => {
+    return [...rows].sort((first, second) => this.expenseRowSortValue(first).localeCompare(this.expenseRowSortValue(second))).map((row) => {
       const transactionType = String(row["transactionType"] || "Site Expense");
       const groupKey = this.expenseGroupKey(row);
       const previousBalance = balances.get(groupKey) ?? this.expenseOpeningBalanceFor(row);
@@ -1101,10 +1256,10 @@ export class UniversalDashboardPage {
     return rows.length ? `${formatNumber(rows.length)} records / ${formatNumber(purchased)} purchased` : "0 records";
   }
 
-  private labourTypesFromRow(row: { category: string; notes: string; presentCount: number }): string {
+  private labourTypesFromRow(row: { category: string; notes: string; presentCount: number; dailyWage?: number }): string {
     const notes = row.notes.trim();
     if (this.staffCountFromLabourTypes(notes)) return notes;
-    return `${row.category}: ${row.presentCount}`;
+    return `${row.category}: ${row.presentCount}${row.dailyWage ? ` @ ${formatMoney(row.dailyWage)}` : ""}`;
   }
 
   private normalizeShift(value: unknown): string {
@@ -1120,17 +1275,81 @@ export class UniversalDashboardPage {
     return value
       .split(/[,;\n]+/)
       .map((part) => {
-        const match = part.trim().match(/(?:^|[:x-])\s*(\d+(?:\.\d+)?)\s*$/i) ?? part.trim().match(/(\d+(?:\.\d+)?)/);
+        const match = part.trim().match(/(?:[:x-])\s*(\d+(?:\.\d+)?)/i) ?? part.trim().match(/(\d+(?:\.\d+)?)/);
         return match ? Number(match[1]) : 0;
       })
       .filter((count) => Number.isFinite(count))
       .reduce((sum, count) => sum + count, 0);
   }
 
+  private mergeLabourType(currentValue: string, labourType: string, count: number, dailyWage = 0): string {
+    const entries = new Map<string, { count: number; wage: number }>();
+    for (const part of currentValue.split(/[,;\n]+/)) {
+      const entry = this.parseLabourTypeEntrySafe(part);
+      if (entry) entries.set(entry.type, { count: entry.count, wage: entry.wage });
+    }
+    const existingKey = [...entries.keys()].find((key) => key.toLowerCase() === labourType.toLowerCase());
+    const existing = existingKey ? entries.get(existingKey) : undefined;
+    entries.set(existingKey ?? labourType, { count, wage: dailyWage || existing?.wage || 0 });
+    return [...entries.entries()]
+      .map(([type, value]) => `${type}: ${value.count}${value.wage ? ` @ ${formatMoney(value.wage)}` : ""}`)
+      .join(", ");
+  }
+
+  private parseLabourTypeEntrySafe(value: string): { type: string; count: number; wage: number } | null {
+    const text = value.trim();
+    if (!text) return null;
+    const countMatch = text.match(/^(.+?)(?:[:x-])\s*(\d+(?:\.\d+)?)/i);
+    if (!countMatch) return null;
+    const wageMatch = text.match(/(?:@|wage\s*[:=-]?)\s*(?:[^\d-]*)?([\d,]+(?:\.\d+)?)/i);
+    return {
+      type: countMatch[1].trim(),
+      count: Number(countMatch[2]),
+      wage: wageMatch ? this.moneyNumber(wageMatch[1]) : 0,
+    };
+  }
+
+  private parseLabourTypeEntry(value: string): { type: string; count: number; wage: number } | null {
+    const text = value.trim();
+    if (!text) return null;
+    const countMatch = text.match(/^(.+?)(?:[:x-])\s*(\d+(?:\.\d+)?)/i);
+    if (!countMatch) return null;
+    const wageMatch = text.match(/(?:@|wage\s*[:=-]?)\s*(?:₹|rs\.?)?\s*([\d,]+(?:\.\d+)?)/i);
+    return {
+      type: countMatch[1].trim(),
+      count: Number(countMatch[2]),
+      wage: wageMatch ? this.moneyNumber(wageMatch[1]) : 0,
+    };
+  }
+
+  private ensureLabourWageField(labourType: string): FieldSchema {
+    const label = `${this.titleCase(labourType)} Daily Wage`;
+    const existing = this.data.customFieldsFor("labour").find((field) => field.label.toLowerCase() === label.toLowerCase());
+    return existing ?? this.data.addCustomField("labour", label, this.columnsForModule("labour"));
+  }
+
+  private columnsForModule(module: DashboardModule): FieldSchema[] {
+    const base = dashboardModules.find((config) => config.key === module)?.columns ?? [];
+    return [...base, ...this.data.customFieldsFor(module)];
+  }
+
+  private titleCase(value: string): string {
+    return value
+      .trim()
+      .split(/\s+/)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+      .join(" ");
+  }
+
   private expenseGroupKey(row: TableRow): string {
     const projectId = String(row["projectId"] || row["__projectId"] || row["project"] || "project");
     const site = String(row["site"] || "Project").trim().toLowerCase();
     return `${projectId}::${site}`;
+  }
+
+  private expenseRowSortValue(row: TableRow): string {
+    const date = String(row["expenseDate"] || row["date"] || "");
+    return `${this.expenseGroupKey(row)}::${date}::${row["__rowId"] || ""}`;
   }
 
   private expenseOpeningBalanceFor(row: TableRow): number {
@@ -1187,6 +1406,7 @@ export class UniversalDashboardPage {
         { key: "attendance", label: "Attendance" },
         { key: "shift", label: "Shift" },
         { key: "overtimeLate", label: "Overtime / Late" },
+        ...this.data.customFieldsFor("labour").filter((field) => field.label.toLowerCase().includes("daily wage")),
       ];
     }
     return this.columnsForActive();

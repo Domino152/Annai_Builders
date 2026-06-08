@@ -616,6 +616,7 @@ export class ErpDataService {
       status?: ProjectStatus;
       totalValue: number;
       advanceAmount: number;
+      openingBalance?: number;
     },
   ): Project {
     const numericIds = this.projects()
@@ -637,11 +638,12 @@ export class ErpDataService {
       receivedAmount: input.advanceAmount,
       materialSpend: 0,
       labourPayable: 0,
-      expenseBalance: 0,
+      expenseBalance: input.openingBalance ?? 0,
       completion: 0,
     };
 
     this.projects.update((projects) => [project, ...projects]);
+    if (project.expenseBalance) this.setExpenseOpeningBalance(project.id, project.sites[0] ?? "Main Site", project.expenseBalance);
     this.clients.update((clients) =>
       clients.map((existingClient) =>
         existingClient.id === client.id ? { ...existingClient, projectIds: [project.id, ...existingClient.projectIds] } : existingClient,
@@ -709,7 +711,7 @@ export class ErpDataService {
 
   updateProject(
     projectId: string,
-    patch: Partial<Pick<Project, "name" | "sites" | "startDate" | "supervisor" | "status" | "totalValue" | "advanceAmount">>,
+    patch: Partial<Pick<Project, "name" | "sites" | "startDate" | "supervisor" | "status" | "totalValue" | "advanceAmount" | "expenseBalance">>,
   ): Project | undefined {
     let updatedProject: Project | undefined;
 

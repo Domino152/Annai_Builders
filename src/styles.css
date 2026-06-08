@@ -9000,6 +9000,31 @@ body {
   font-weight: 850;
 }
 
+.opening-edit-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid #cbd7e8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #002263;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.opening-edit-action ion-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.opening-edit-action:hover {
+  border-color: #8fa6d2;
+  background: #f3f7ff;
+}
+
 .expense-opening-modal {
   padding: 16px 22px 0;
 }
@@ -9144,7 +9169,8 @@ body {
 .dark-mode .expense-opening-modal input,
 .dark-mode .erp-select-trigger,
 .dark-mode .custom-select-entry input,
-.dark-mode .labour-types-cell button {
+.dark-mode .labour-types-cell button,
+.dark-mode .opening-edit-action {
   border-color: #385175 !important;
   background: #101c30 !important;
   color: #edf4ff !important;

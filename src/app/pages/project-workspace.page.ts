@@ -311,7 +311,9 @@ const sectionConfigs: SectionConfig[] = [
               <div class="expense-opening-editor" *ngIf="activeSection() === 'expenses'">
                 <label>
                   <span>Opening Balance</span>
+                  <strong *ngIf="!expenseOpeningEdit()">{{ expenseOpeningBalanceLabel() }}</strong>
                   <input
+                    *ngIf="expenseOpeningEdit()"
                     inputmode="decimal"
                     [value]="expenseOpeningBalanceInput()"
                     (input)="updateExpenseOpeningBalance($any($event.target).value)"
@@ -321,6 +323,17 @@ const sectionConfigs: SectionConfig[] = [
                   <span>{{ expenseOpeningSiteLabel() }}</span>
                   <strong>Current balance {{ expenseCurrentBalanceLabel() }}</strong>
                 </div>
+                <button type="button" class="opening-edit-action" (click)="toggleExpenseOpeningEdit()">
+                  <ion-icon [name]="expenseOpeningEdit() ? 'checkmark-outline' : 'create-outline'"></ion-icon>
+                  {{ expenseOpeningEdit() ? 'Save' : 'Edit' }}
+                </button>
+              </div>
+
+              <div class="expense-ledger-summary" *ngIf="activeSection() === 'expenses'">
+                <div><span>Opening</span><strong>{{ expenseOpeningBalanceLabel() }}</strong></div>
+                <div><span>Cash Added</span><strong>{{ expenseCashAddedLabel() }}</strong></div>
+                <div><span>Expenses</span><strong>{{ expenseSpentLabel() }}</strong></div>
+                <div><span>Current Balance</span><strong>{{ expenseCurrentBalanceLabel() }}</strong></div>
               </div>
 
               <div class="table-wrap operations-table">
@@ -555,6 +568,17 @@ const sectionConfigs: SectionConfig[] = [
                       (input)="labourTypeCount.set($any($event.target).value)"
                     />
                   </label>
+                  <label>
+                    <span>Daily Wage</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="50"
+                      [value]="labourTypeDailyWage()"
+                      (input)="labourTypeDailyWage.set($any($event.target).value)"
+                      placeholder="950"
+                    />
+                  </label>
                 </div>
                 <div class="dialog-actions">
                   <button type="button" class="secondary-action" (click)="closeLabourTypeDialog()">Cancel</button>
@@ -606,6 +630,8 @@ export class ProjectWorkspacePage {
   readonly labourTypeRowId = signal("");
   readonly labourTypeName = signal("Mason");
   readonly labourTypeCount = signal("1");
+  readonly labourTypeDailyWage = signal("");
+  readonly expenseOpeningEdit = signal(false);
   readonly tableRows = computed<Record<ModuleKey, TableRow[]>>(() => this.buildInitialRows(this.projectId()));
 
   readonly clientId = computed(() => this.paramMap().get("clientId") ?? "");
@@ -796,6 +822,7 @@ export class ProjectWorkspacePage {
     this.labourTypeRowId.set(String(row["__rowId"] || ""));
     this.labourTypeName.set("Mason");
     this.labourTypeCount.set("1");
+    this.labourTypeDailyWage.set("");
     this.labourTypeDialogOpen.set(true);
   }
 
@@ -809,11 +836,14 @@ export class ProjectWorkspacePage {
     const rowId = this.labourTypeRowId();
     const type = this.labourTypeName().trim();
     const count = Math.max(0, Math.round(this.moneyNumber(this.labourTypeCount())));
+    const dailyWage = Math.max(0, this.moneyNumber(this.labourTypeDailyWage()));
     if (!rowId || !type || !count) return;
     const row = this.visibleRows("labour").find((entry) => String(entry["__rowId"] || "") === rowId);
-    const nextTypes = this.mergeLabourType(String(row?.["labourTypes"] || ""), type, count);
+    const nextTypes = this.mergeLabourType(String(row?.["labourTypes"] || ""), type, count, dailyWage);
+    const wageField = this.ensureLabourWageField(type);
     this.data.updateSharedRowCell(rowId, "labourTypes", nextTypes);
     this.data.updateSharedRowCell(rowId, "notes", nextTypes);
+    if (dailyWage) this.data.updateSharedRowCell(rowId, wageField.key, formatMoney(dailyWage));
     this.closeLabourTypeDialog();
   }
 
@@ -880,6 +910,7 @@ export class ProjectWorkspacePage {
       supervisor: project.supervisor,
       totalValue: project.totalValue,
       advanceAmount: project.advanceAmount,
+      openingBalance: project.expenseBalance,
       status: project.status,
     };
   }
@@ -888,8 +919,10 @@ export class ProjectWorkspacePage {
     const currentClient = this.client();
     if (!currentClient || !value.name || !value.startDate || !value.supervisor || !value.totalValue) return;
     const editing = this.editingProject();
+    const { openingBalance, ...projectValue } = value;
     if (editing) {
-      const updated = this.data.updateProject(editing.id, value);
+      const updated = this.data.updateProject(editing.id, { ...projectValue, expenseBalance: openingBalance });
+      this.data.setExpenseOpeningBalance(editing.id, editing.sites[0] ?? "Main Site", openingBalance);
       this.editingProject.set(null);
       this.showProjectForm.set(false);
       if (updated && editing.id === this.projectId()) {
@@ -897,7 +930,7 @@ export class ProjectWorkspacePage {
       }
       return;
     }
-    const project = this.data.addProject(currentClient, value);
+    const project = this.data.addProject(currentClient, { ...projectValue, openingBalance });
     this.showProjectForm.set(false);
     setTimeout(() => void this.router.navigate(["/clients", currentClient.id, "projects", project.id, "materials"]));
   }
@@ -1194,7 +1227,7 @@ export class ProjectWorkspacePage {
 
   private withExpenseBalances(rows: TableRow[]): TableRow[] {
     const balances = new Map<string, number>();
-    return rows.map((row) => {
+    return [...rows].sort((first, second) => this.expenseRowSortValue(first).localeCompare(this.expenseRowSortValue(second))).map((row) => {
       const transactionType = String(row["transactionType"] || row["expenseScope"] || "Site Expense");
       const groupKey = this.expenseGroupKey(row);
       const previousBalance = balances.get(groupKey) ?? this.expenseOpeningBalanceFor(row);
@@ -1254,10 +1287,10 @@ export class ProjectWorkspacePage {
     return rows.length ? `${formatNumber(rows.length)} records / ${formatNumber(purchased)} purchased` : "0 records";
   }
 
-  private labourTypesFromRow(row: { category: string; notes: string; presentCount: number }): string {
+  private labourTypesFromRow(row: { category: string; notes: string; presentCount: number; dailyWage?: number }): string {
     const notes = row.notes.trim();
     if (this.staffCountFromLabourTypes(notes)) return notes;
-    return `${row.category}: ${row.presentCount}`;
+    return `${row.category}: ${row.presentCount}${row.dailyWage ? ` @ ${formatMoney(row.dailyWage)}` : ""}`;
   }
 
   private normalizeShift(value: unknown): string {
@@ -1273,24 +1306,65 @@ export class ProjectWorkspacePage {
     return value
       .split(/[,;\n]+/)
       .map((part) => {
-        const match = part.trim().match(/(?:^|[:x-])\s*(\d+(?:\.\d+)?)\s*$/i) ?? part.trim().match(/(\d+(?:\.\d+)?)/);
+        const match = part.trim().match(/(?:[:x-])\s*(\d+(?:\.\d+)?)/i) ?? part.trim().match(/(\d+(?:\.\d+)?)/);
         return match ? Number(match[1]) : 0;
       })
       .filter((count) => Number.isFinite(count))
       .reduce((sum, count) => sum + count, 0);
   }
 
-  private mergeLabourType(currentValue: string, labourType: string, count: number): string {
-    const entries = new Map<string, number>();
+  private mergeLabourType(currentValue: string, labourType: string, count: number, dailyWage = 0): string {
+    const entries = new Map<string, { count: number; wage: number }>();
     for (const part of currentValue.split(/[,;\n]+/)) {
-      const [rawType, rawCount] = part.split(/[:x-]/);
-      const type = rawType?.trim();
-      const parsedCount = this.moneyNumber(rawCount);
-      if (type && parsedCount) entries.set(type, parsedCount);
+      const entry = this.parseLabourTypeEntrySafe(part);
+      if (entry) entries.set(entry.type, { count: entry.count, wage: entry.wage });
     }
     const existingKey = [...entries.keys()].find((key) => key.toLowerCase() === labourType.toLowerCase());
-    entries.set(existingKey ?? labourType, count);
-    return [...entries.entries()].map(([type, value]) => `${type}: ${value}`).join(", ");
+    const existing = existingKey ? entries.get(existingKey) : undefined;
+    entries.set(existingKey ?? labourType, { count, wage: dailyWage || existing?.wage || 0 });
+    return [...entries.entries()]
+      .map(([type, value]) => `${type}: ${value.count}${value.wage ? ` @ ${formatMoney(value.wage)}` : ""}`)
+      .join(", ");
+  }
+
+  private parseLabourTypeEntrySafe(value: string): { type: string; count: number; wage: number } | null {
+    const text = value.trim();
+    if (!text) return null;
+    const countMatch = text.match(/^(.+?)(?:[:x-])\s*(\d+(?:\.\d+)?)/i);
+    if (!countMatch) return null;
+    const wageMatch = text.match(/(?:@|wage\s*[:=-]?)\s*(?:[^\d-]*)?([\d,]+(?:\.\d+)?)/i);
+    return {
+      type: countMatch[1].trim(),
+      count: Number(countMatch[2]),
+      wage: wageMatch ? this.moneyNumber(wageMatch[1]) : 0,
+    };
+  }
+
+  private parseLabourTypeEntry(value: string): { type: string; count: number; wage: number } | null {
+    const text = value.trim();
+    if (!text) return null;
+    const countMatch = text.match(/^(.+?)(?:[:x-])\s*(\d+(?:\.\d+)?)/i);
+    if (!countMatch) return null;
+    const wageMatch = text.match(/(?:@|wage\s*[:=-]?)\s*(?:₹|rs\.?)?\s*([\d,]+(?:\.\d+)?)/i);
+    return {
+      type: countMatch[1].trim(),
+      count: Number(countMatch[2]),
+      wage: wageMatch ? this.moneyNumber(wageMatch[1]) : 0,
+    };
+  }
+
+  private ensureLabourWageField(labourType: string): FieldSchema {
+    const label = `${this.titleCase(labourType)} Daily Wage`;
+    const existing = this.data.customFieldsFor("labour").find((field) => field.label.toLowerCase() === label.toLowerCase());
+    return existing ?? this.data.addCustomField("labour", label, this.columnsFor("labour"));
+  }
+
+  private titleCase(value: string): string {
+    return value
+      .trim()
+      .split(/\s+/)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+      .join(" ");
   }
 
   expenseOpeningSiteLabel(): string {
@@ -1304,6 +1378,10 @@ export class ProjectWorkspacePage {
 
   updateExpenseOpeningBalance(value: string) {
     this.data.setExpenseOpeningBalance(this.projectId(), this.expenseEditableSite(), this.moneyNumber(value));
+  }
+
+  toggleExpenseOpeningEdit() {
+    this.expenseOpeningEdit.update((isEditing) => !isEditing);
   }
 
   expenseDraftSiteLabel(): string {
@@ -1342,10 +1420,35 @@ export class ProjectWorkspacePage {
     return formatMoney(total);
   }
 
+  expenseCashAddedLabel(): string {
+    const rows = this.visibleRows("expenses");
+    const openingByGroup = new Map<string, number>();
+    const cashAdded = rows.reduce((sum, row) => {
+      const key = this.expenseGroupKey(row);
+      if (!openingByGroup.has(key)) openingByGroup.set(key, this.expenseOpeningBalanceFor(row));
+      const amount = this.expenseSignedAmount(row);
+      return amount > 0 ? sum + amount : sum;
+    }, 0);
+    return formatMoney(cashAdded);
+  }
+
+  expenseSpentLabel(): string {
+    const spent = this.visibleRows("expenses").reduce((sum, row) => {
+      const amount = this.expenseSignedAmount(row);
+      return amount < 0 ? sum + Math.abs(amount) : sum;
+    }, 0);
+    return formatMoney(spent);
+  }
+
   private expenseGroupKey(row: TableRow): string {
     const projectId = String(row["projectId"] || row["__projectId"] || this.projectId() || "project");
     const site = String(row["site"] || "Project").trim().toLowerCase();
     return `${projectId}::${site}`;
+  }
+
+  private expenseRowSortValue(row: TableRow): string {
+    const date = String(row["expenseDate"] || row["date"] || "");
+    return `${this.expenseGroupKey(row)}::${date}::${row["__rowId"] || ""}`;
   }
 
   private expenseOpeningBalanceFor(row: TableRow): number {
@@ -1408,6 +1511,7 @@ export class ProjectWorkspacePage {
         { key: "attendance", label: "Attendance" },
         { key: "shift", label: "Shift" },
         { key: "overtimeLate", label: "Overtime / Late" },
+        ...this.data.customFieldsFor("labour").filter((field) => field.label.toLowerCase().includes("daily wage")),
       ];
     }
     return this.columnsFor(section);
