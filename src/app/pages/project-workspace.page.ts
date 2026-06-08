@@ -10,7 +10,7 @@ import { EnterpriseSidebarComponent } from "../shared/enterprise-sidebar.compone
 import { formatMoney, formatNumber, statusClass } from "../shared/format";
 import { ProjectFormDialogComponent, type ProjectFormValue } from "../shared/project-form-dialog.component";
 
-type ModuleKey = Exclude<SharedModuleKey, "clients" | "generalExpenses" | "settings">;
+type ModuleKey = Exclude<SharedModuleKey, "clients" | "generalExpenses" | "settings" | "supervisors">;
 type TableRow = SharedTableRow;
 type FieldSchema = SharedTableField;
 type SectionConfig = {
@@ -104,6 +104,25 @@ const sectionConfigs: SectionConfig[] = [
       { key: "address", label: "Address" },
       { key: "gstNumber", label: "GST Number" },
       { key: "purchaseHistory", label: "Purchase History" },
+    ],
+  },
+  {
+    key: "subcontractors",
+    label: "Subcontracts",
+    title: "Subcontractor Register",
+    description: "Project subcontractor work packages with site, value, advances, due dates, supervisor, and payment status.",
+    columns: [
+      { key: "site", label: "Site" },
+      { key: "subcontractorName", label: "Subcontractor Name" },
+      { key: "workPackage", label: "Work Package" },
+      { key: "contractValue", label: "Contract Value" },
+      { key: "advancePaid", label: "Advance Paid" },
+      { key: "balance", label: "Balance" },
+      { key: "startDate", label: "Start Date", type: "date" },
+      { key: "dueDate", label: "Due Date", type: "date" },
+      { key: "supervisor", label: "Supervisor" },
+      { key: "approvalStatus", label: "Approval Status" },
+      { key: "paymentStatus", label: "Payment Status" },
     ],
   },
   {
@@ -469,7 +488,7 @@ export class ProjectWorkspacePage {
   }
 
   isSiteAware(section: ModuleKey): boolean {
-    return section === "materials" || section === "labour" || section === "expenses";
+    return section === "materials" || section === "labour" || section === "expenses" || section === "subcontractors";
   }
 
   selectSite(site: string) {
@@ -686,11 +705,29 @@ export class ProjectWorkspacePage {
       purchaseHistory: "View History",
     }));
 
+    const subcontractors = this.data.subcontractorsForProject(projectId).map((row) => ({
+      __rowId: `subcontractor:${row.id}`,
+      __projectId: row.projectId,
+      projectId: row.projectId,
+      site: row.site,
+      subcontractorName: row.name,
+      workPackage: row.workPackage,
+      contractValue: formatMoney(row.contractValue),
+      advancePaid: formatMoney(row.advancePaid),
+      balance: formatMoney(row.contractValue - row.advancePaid),
+      startDate: row.startDate,
+      dueDate: row.dueDate,
+      supervisor: row.supervisor,
+      approvalStatus: row.approvalStatus,
+      paymentStatus: row.paymentStatus,
+    }));
+
     const reports = [
       ["Financial", "Payment Collection Report", "Client receipt and pending receivable export", "Accountant", "PDF / Excel", "Ready"],
       ["Financial", "Expense Report", "Supervisor expense and bill reference export", "Admin", "PDF / Excel", "Ready"],
       ["Labour", "Attendance Report", "Site-wise attendance and wage export", "Project Manager", "Excel", "Ready"],
       ["Material", "Inventory Report", "Purchased, consumed, and remaining stock export", "Project Manager", "Excel", "Ready"],
+      ["Subcontract", "Subcontractor Ledger", "Work package value, advance, balance, and status export", "Project Manager", "Excel", "Ready"],
       ["Project", "Project Summary", "Project value, progress, sites, and status export", "Admin", "PDF", "Ready"],
     ].map(([category, reportName, description, owner, exportFormat, status], index) => ({
       __rowId: `project-report:${projectId}:${index}`,
@@ -710,6 +747,7 @@ export class ProjectWorkspacePage {
       expenses,
       payments,
       vendors,
+      subcontractors,
       reports,
     };
   }

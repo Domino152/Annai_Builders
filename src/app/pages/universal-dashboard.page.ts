@@ -7,7 +7,17 @@ import { EnterpriseHeaderComponent } from "../shared/enterprise-header.component
 import { EnterpriseSidebarComponent } from "../shared/enterprise-sidebar.component";
 import { formatMoney, formatNumber, statusClass } from "../shared/format";
 
-type DashboardModule = "materials" | "clients" | "labour" | "expenses" | "generalExpenses" | "payments" | "vendors" | "reports";
+type DashboardModule =
+  | "materials"
+  | "clients"
+  | "labour"
+  | "expenses"
+  | "generalExpenses"
+  | "payments"
+  | "vendors"
+  | "supervisors"
+  | "subcontractors"
+  | "reports";
 type TableRow = SharedTableRow;
 type FieldSchema = SharedTableField;
 type FilterSchema = { key: string; label: string };
@@ -186,6 +196,60 @@ const dashboardModules: ModuleConfig[] = [
     filters: [
       { key: "materialType", label: "Material Type" },
       { key: "vendorName", label: "Vendor" },
+    ],
+  },
+  {
+    key: "supervisors",
+    label: "Supervisors",
+    title: "Supervisor Master List",
+    description: "Company supervisor records with assignment, cash limits, advances, approval authority, and status.",
+    columns: [
+      { key: "supervisorId", label: "Supervisor ID" },
+      { key: "supervisorName", label: "Supervisor Name" },
+      { key: "phoneNumber", label: "Phone Number" },
+      { key: "role", label: "Role" },
+      { key: "assignedProject", label: "Assigned Project" },
+      { key: "assignedSite", label: "Assigned Site" },
+      { key: "cashLimit", label: "Cash Limit" },
+      { key: "activeAdvances", label: "Active Advances" },
+      { key: "approvalAuthority", label: "Approval Authority" },
+      { key: "status", label: "Status" },
+    ],
+    filters: [
+      { key: "role", label: "Role" },
+      { key: "assignedProject", label: "Project" },
+      { key: "assignedSite", label: "Site" },
+      { key: "status", label: "Status" },
+    ],
+  },
+  {
+    key: "subcontractors",
+    label: "Subcontracts",
+    title: "Subcontractor Register",
+    description: "Subcontractor work packages with contract value, advances, balance, supervisor, and payment status.",
+    columns: [
+      { key: "subcontractId", label: "Subcontract ID" },
+      { key: "client", label: "Client" },
+      { key: "project", label: "Project" },
+      { key: "site", label: "Site" },
+      { key: "subcontractorName", label: "Subcontractor Name" },
+      { key: "workPackage", label: "Work Package" },
+      { key: "contractValue", label: "Contract Value" },
+      { key: "advancePaid", label: "Advance Paid" },
+      { key: "balance", label: "Balance" },
+      { key: "startDate", label: "Start Date" },
+      { key: "dueDate", label: "Due Date" },
+      { key: "supervisor", label: "Supervisor" },
+      { key: "approvalStatus", label: "Approval Status" },
+      { key: "paymentStatus", label: "Payment Status" },
+    ],
+    filters: [
+      { key: "client", label: "Client" },
+      { key: "project", label: "Project" },
+      { key: "site", label: "Site" },
+      { key: "supervisor", label: "Supervisor" },
+      { key: "paymentStatus", label: "Payment Status" },
+      { key: "approvalStatus", label: "Approval Status" },
     ],
   },
   {
@@ -454,7 +518,7 @@ export class UniversalDashboardPage {
   }
 
   isReadonlyColumn(key: string): boolean {
-    return key === "clientId" || key === "vendorId";
+    return key === "clientId" || key === "vendorId" || key === "supervisorId" || key === "subcontractId";
   }
 
   setFilter(key: string, value: string) {
@@ -668,12 +732,49 @@ export class UniversalDashboardPage {
       purchaseHistory: "Available",
     }));
 
+    const supervisors = this.data.supervisors().map((supervisor) => ({
+      __rowId: `supervisor:${supervisor.id}`,
+      supervisorId: supervisor.id,
+      supervisorName: supervisor.name,
+      phoneNumber: supervisor.phone,
+      role: supervisor.role,
+      assignedProject: supervisor.assignedProject,
+      assignedSite: supervisor.assignedSite,
+      cashLimit: formatMoney(supervisor.cashLimit),
+      activeAdvances: formatMoney(supervisor.activeAdvances),
+      approvalAuthority: supervisor.approvalAuthority,
+      status: supervisor.status,
+    }));
+
+    const subcontractors = this.data.subcontractors().map((subcontractor) => {
+      const project = projectById(subcontractor.projectId);
+      return {
+        __rowId: `subcontractor:${subcontractor.id}`,
+        __projectId: subcontractor.projectId,
+        subcontractId: subcontractor.id,
+        client: project?.client ?? "",
+        project: project?.name ?? subcontractor.projectId,
+        site: subcontractor.site,
+        subcontractorName: subcontractor.name,
+        workPackage: subcontractor.workPackage,
+        contractValue: formatMoney(subcontractor.contractValue),
+        advancePaid: formatMoney(subcontractor.advancePaid),
+        balance: formatMoney(subcontractor.contractValue - subcontractor.advancePaid),
+        startDate: subcontractor.startDate,
+        dueDate: subcontractor.dueDate,
+        supervisor: subcontractor.supervisor,
+        approvalStatus: subcontractor.approvalStatus,
+        paymentStatus: subcontractor.paymentStatus,
+      };
+    });
+
     const reports = [
       ["Financial", "Payment Collection Report", "All projects", "Accountant", "Excel", "Ready"],
       ["Financial", "Expense Report", "All sites", "Admin", "Excel", "Ready"],
       ["Labour", "Attendance Report", "All labour", "Project Manager", "Excel", "Ready"],
       ["Material", "Inventory Report", "All materials", "Project Manager", "Excel", "Ready"],
       ["Vendor", "Vendor Purchase Report", "All vendors", "Admin", "Excel", "Ready"],
+      ["Subcontract", "Subcontractor Ledger", "All subcontractors", "Project Manager", "Excel", "Ready"],
       ["Project", "Project Summary", "All clients", "Admin", "Excel", "Ready"],
     ].map(([category, reportName, scope, owner, exportFormat, status], index) => ({
       __rowId: `report:${index}`,
@@ -685,7 +786,7 @@ export class UniversalDashboardPage {
       status,
     }));
 
-    return { materials, clients, labour, expenses, generalExpenses, payments, vendors, reports };
+    return { materials, clients, labour, expenses, generalExpenses, payments, vendors, supervisors, subcontractors, reports };
   }
 
   private rowsFor(module: DashboardModule): TableRow[] {

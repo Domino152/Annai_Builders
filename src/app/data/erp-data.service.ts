@@ -35,6 +35,34 @@ export type Vendor = {
   gst: string;
 };
 
+export type Supervisor = {
+  id: string;
+  name: string;
+  phone: string;
+  role: string;
+  assignedProject: string;
+  assignedSite: string;
+  cashLimit: number;
+  activeAdvances: number;
+  approvalAuthority: string;
+  status: "Active" | "On Leave" | "Inactive";
+};
+
+export type Subcontractor = {
+  id: string;
+  projectId: string;
+  site: string;
+  name: string;
+  workPackage: string;
+  contractValue: number;
+  advancePaid: number;
+  startDate: string;
+  dueDate: string;
+  supervisor: string;
+  approvalStatus: "Pending" | "Approved" | "Rejected";
+  paymentStatus: "Not Started" | "Part Paid" | "Paid";
+};
+
 export type SharedModuleKey =
   | "materials"
   | "clients"
@@ -43,6 +71,8 @@ export type SharedModuleKey =
   | "generalExpenses"
   | "payments"
   | "vendors"
+  | "supervisors"
+  | "subcontractors"
   | "reports"
   | "settings";
 export type SharedFieldType = "text" | "number" | "date";
@@ -157,6 +187,92 @@ export class ErpDataService {
     },
     ]),
   );
+  readonly supervisors = signal<Supervisor[]>(
+    this.readState<Supervisor[]>("supervisors", [
+    {
+      id: "SUP-101",
+      name: "R. Karthik",
+      phone: "+91 98400 11880",
+      role: "Senior Site Supervisor",
+      assignedProject: "Green Nest Villas",
+      assignedSite: "Area 1 / Area 2 / Area 3",
+      cashLimit: 50000,
+      activeAdvances: 25000,
+      approvalAuthority: "Material, Labour, Expense",
+      status: "Active",
+    },
+    {
+      id: "SUP-102",
+      name: "S. Prabhu",
+      phone: "+91 97911 40590",
+      role: "Site Supervisor",
+      assignedProject: "Kaveri Flats Renovation",
+      assignedSite: "Ground Floor / First Floor",
+      cashLimit: 35000,
+      activeAdvances: 10000,
+      approvalAuthority: "Labour, Expense",
+      status: "Active",
+    },
+    {
+      id: "SUP-103",
+      name: "M. Saravanan",
+      phone: "+91 98840 77012",
+      role: "Finishing Supervisor",
+      assignedProject: "Lakshmi Nagar Duplex",
+      assignedSite: "Block A / Block B",
+      cashLimit: 30000,
+      activeAdvances: 0,
+      approvalAuthority: "Attendance, Site Expense",
+      status: "Active",
+    },
+    ]),
+  );
+  readonly subcontractors = signal<Subcontractor[]>(
+    this.readState<Subcontractor[]>("subcontractors", [
+    {
+      id: "SUB-201",
+      projectId: "AB-1024",
+      site: "Area 1",
+      name: "Selvam Civil Works",
+      workPackage: "Block masonry and plastering",
+      contractValue: 780000,
+      advancePaid: 125000,
+      startDate: "2026-05-08",
+      dueDate: "2026-07-15",
+      supervisor: "R. Karthik",
+      approvalStatus: "Approved",
+      paymentStatus: "Part Paid",
+    },
+    {
+      id: "SUB-202",
+      projectId: "AB-1024",
+      site: "Area 2",
+      name: "Ganesh Plumbing",
+      workPackage: "Plumbing rough-in and testing",
+      contractValue: 340000,
+      advancePaid: 50000,
+      startDate: "2026-05-22",
+      dueDate: "2026-07-02",
+      supervisor: "R. Karthik",
+      approvalStatus: "Pending",
+      paymentStatus: "Part Paid",
+    },
+    {
+      id: "SUB-203",
+      projectId: "AB-1031",
+      site: "First Floor",
+      name: "Sri Balaji Electricals",
+      workPackage: "Electrical conduit and wiring",
+      contractValue: 465000,
+      advancePaid: 90000,
+      startDate: "2026-04-25",
+      dueDate: "2026-06-30",
+      supervisor: "S. Prabhu",
+      approvalStatus: "Approved",
+      paymentStatus: "Part Paid",
+    },
+    ]),
+  );
 
   readonly reports = signal([
     "Payment Collection Report",
@@ -168,6 +284,7 @@ export class ErpDataService {
     "Purchase Report",
     "Consumption Report",
     "Inventory Report",
+    "Subcontractor Ledger",
     "Project Summary",
     "Site Summary",
   ]);
@@ -190,6 +307,8 @@ export class ErpDataService {
     effect(() => this.writeState("expenses", this.expenses()));
     effect(() => this.writeState("payments", this.payments()));
     effect(() => this.writeState("vendors", this.vendors()));
+    effect(() => this.writeState("supervisors", this.supervisors()));
+    effect(() => this.writeState("subcontractors", this.subcontractors()));
     effect(() => this.writeState("customTableFields", this.customTableFields()));
     effect(() => this.writeState("customTableRows", this.customTableRows()));
     effect(() => this.writeState("tableCellEdits", this.tableCellEdits()));
@@ -402,6 +521,10 @@ export class ErpDataService {
     return this.payments().filter((row) => row.projectId === projectId);
   }
 
+  subcontractorsForProject(projectId: string): Subcontractor[] {
+    return this.subcontractors().filter((row) => row.projectId === projectId);
+  }
+
   customFieldsFor(module: SharedModuleKey): SharedTableField[] {
     return this.customTableFields()[module] ?? [];
   }
@@ -539,11 +662,35 @@ export class ErpDataService {
   }
 
   private emptySharedFieldMap(): Record<SharedModuleKey, SharedTableField[]> {
-    return { materials: [], clients: [], labour: [], expenses: [], generalExpenses: [], payments: [], vendors: [], reports: [], settings: [] };
+    return {
+      materials: [],
+      clients: [],
+      labour: [],
+      expenses: [],
+      generalExpenses: [],
+      payments: [],
+      vendors: [],
+      supervisors: [],
+      subcontractors: [],
+      reports: [],
+      settings: [],
+    };
   }
 
   private emptySharedRowMap(): Record<SharedModuleKey, SharedTableRow[]> {
-    return { materials: [], clients: [], labour: [], expenses: [], generalExpenses: [], payments: [], vendors: [], reports: [], settings: [] };
+    return {
+      materials: [],
+      clients: [],
+      labour: [],
+      expenses: [],
+      generalExpenses: [],
+      payments: [],
+      vendors: [],
+      supervisors: [],
+      subcontractors: [],
+      reports: [],
+      settings: [],
+    };
   }
 
   private fieldKey(label: string, existingColumns: SharedTableField[]): string {

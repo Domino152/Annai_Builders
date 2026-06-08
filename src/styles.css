@@ -8724,3 +8724,31 @@ body {
   border-color: #9bbcff !important;
   background: #1f3960 !important;
 }
+
+/* Wider ERP module set: keep supervisor/subcontract tabs readable */
+.operations-tabs {
+  display: flex !important;
+  align-items: stretch !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scrollbar-width: thin;
+}
+
+.operations-tabs button {
+  flex: 0 0 auto !important;
+  min-width: max-content !important;
+  white-space: nowrap !important;
+}
+
+.operations-tabs::-webkit-scrollbar {
+  height: 8px;
+}
+
+.operations-tabs::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #c8d4e5;
+}
+
+.dark-mode .operations-tabs::-webkit-scrollbar-thumb {
+  background: #3a5278;
+}
