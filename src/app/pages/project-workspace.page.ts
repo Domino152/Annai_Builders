@@ -44,18 +44,25 @@ const sectionConfigs: SectionConfig[] = [
     key: "labour",
     label: "Labour",
     title: "Labour Attendance",
-    description: "Attendance and wage fields for site labour, shifts, overtime, fine, notes, and approvals.",
+    description: "Staff attendance, category, crew count, shift, fine, and weekly pay fields for site labour.",
     columns: [
-      { key: "attendanceDate", label: "Date", type: "date" },
-      { key: "labourName", label: "Labour Name" },
-      { key: "category", label: "Category" },
+      { key: "client", label: "Client" },
+      { key: "clientId", label: "Client ID" },
+      { key: "projectId", label: "Project ID" },
       { key: "site", label: "Site" },
+      { key: "attendanceDate", label: "Date", type: "date" },
+      { key: "staffName", label: "Staff Name" },
+      { key: "category", label: "Category" },
+      { key: "masonCount", label: "Mason", type: "number" },
+      { key: "helperCount", label: "Helper", type: "number" },
+      { key: "staffCount", label: "Staff Count", type: "number" },
       { key: "attendance", label: "Attendance" },
       { key: "shift", label: "Shift" },
       { key: "overtime", label: "Overtime" },
       { key: "dailyPay", label: "Daily Labour Pay" },
+      { key: "weeklyDays", label: "Week Days", type: "number" },
       { key: "lateFine", label: "Late Fine" },
-      { key: "weeklyPayable", label: "Weekly Payable" },
+      { key: "weeklyPay", label: "Weekly Pay" },
       { key: "paymentMode", label: "Payment Mode" },
       { key: "notes", label: "Notes" },
       { key: "status", label: "Status" },
@@ -328,7 +335,9 @@ const sectionConfigs: SectionConfig[] = [
                         </ng-template>
                       </td>
                       <td class="row-actions">
-                        <button type="button" (click)="deleteRow(row)">Delete</button>
+                        <button type="button" class="icon-row-action danger" aria-label="Delete row" title="Delete row" (click)="deleteRow(row)">
+                          <ion-icon name="trash-outline"></ion-icon>
+                        </button>
                       </td>
                     </tr>
                     <tr *ngIf="visibleRows(activeSection()).length === 0">
@@ -671,6 +680,8 @@ export class ProjectWorkspacePage {
   }
 
   private buildInitialRows(projectId: string): Record<ModuleKey, TableRow[]> {
+    const currentProject = this.data.projectById(projectId);
+    const currentClient = this.data.clients().find((client) => client.projectIds.includes(projectId) || client.name === currentProject?.client);
     const materials = this.data.materialsForProject(projectId).map((row) => ({
       __rowId: `material:${row.id}`,
       __projectId: row.projectId,
@@ -691,16 +702,22 @@ export class ProjectWorkspacePage {
       __rowId: `labour:${row.id}`,
       __projectId: row.projectId,
       projectId: row.projectId,
+      client: currentProject?.client ?? "",
+      clientId: currentClient?.id ?? this.clientId(),
       attendanceDate: "2026-06-05",
-      labourName: row.party,
+      staffName: row.party,
       category: row.category,
       site: row.site,
+      masonCount: this.countFromNotes(row.notes, "Mason") || (row.category === "Mason" ? row.presentCount : 0),
+      helperCount: this.countFromNotes(row.notes, "Helper"),
+      staffCount: row.presentCount,
       attendance: "Present",
       shift: row.shift,
       overtime: `${row.overtime} hrs`,
       dailyPay: formatMoney(row.dailyWage),
+      weeklyDays: row.presentDays,
       lateFine: formatMoney(row.lateFine),
-      weeklyPayable: formatMoney(row.dailyWage * row.presentDays * row.presentCount + row.overtime * 175 - row.lateFine),
+      weeklyPay: formatMoney(row.dailyWage * row.presentDays * row.presentCount + row.overtime * 175 - row.lateFine),
       presentUnits: row.presentDays * row.presentCount,
       paymentMode: row.paymentMode,
       notes: row.notes,
@@ -815,7 +832,7 @@ export class ProjectWorkspacePage {
   }
 
   isReadonlyColumn(key: string): boolean {
-    return key === "runningBalance" || key === "weeklyPayable" || key === "balance";
+    return key === "runningBalance" || key === "weeklyPayable" || key === "weeklyPay" || key === "staffCount" || key === "balance";
   }
 
   selectOptions(section: ModuleKey, key: string): string[] {
@@ -829,6 +846,7 @@ export class ProjectWorkspacePage {
       ];
     }
     if (section === "labour" && key === "attendance") return ["Present", "Absent"];
+    if (section === "labour" && key === "category") return ["Mason", "Plumber", "Civil", "Electrician"];
     if (key === "approvalStatus" || key === "status") return ["Pending", "Approved", "Rejected"];
     if (key === "paymentMode") return ["Cash", "NEFT", "UPI", "Bank Transfer", "Cheque"];
     if (key === "paymentStatus") return ["Not Started", "Part Paid", "Paid"];
@@ -853,16 +871,23 @@ export class ProjectWorkspacePage {
         status: "Pending",
       },
       labour: {
-        attendanceDate: today,
-        labourName: "",
-        category: "",
+        client: currentProject?.client ?? "",
+        clientId: this.clientId(),
+        projectId: this.projectId(),
         site,
+        attendanceDate: today,
+        staffName: "",
+        category: "Mason",
+        masonCount: "1",
+        helperCount: "0",
+        staffCount: "1",
         attendance: "Present",
         shift: "Day",
         overtime: "0",
         dailyPay: "0",
+        weeklyDays: "1",
         lateFine: "0",
-        weeklyPayable: formatMoney(0),
+        weeklyPay: formatMoney(0),
         presentUnits: 1,
         paymentMode: "Cash",
         notes: "",
@@ -953,14 +978,20 @@ export class ProjectWorkspacePage {
 
   private withLabourPayable(row: TableRow): TableRow {
     const attendance = String(row["attendance"] || "Present");
-    const presentUnits = attendance.toLowerCase() === "absent" ? 0 : this.moneyNumber(row["presentUnits"] || 1) || 1;
+    const masonCount = this.moneyNumber(row["masonCount"]);
+    const helperCount = this.moneyNumber(row["helperCount"]);
+    const enteredStaffCount = this.moneyNumber(row["staffCount"]);
+    const staffCount = masonCount + helperCount || enteredStaffCount || this.moneyNumber(row["presentUnits"]) || 1;
+    const weeklyDays = attendance.toLowerCase() === "absent" ? 0 : this.moneyNumber(row["weeklyDays"] || 1) || 1;
     const dailyPay = this.moneyNumber(row["dailyPay"]);
     const overtime = this.moneyNumber(row["overtime"]);
     const lateFine = this.moneyNumber(row["lateFine"]);
     return {
       ...row,
+      staffName: row["staffName"] || row["labourName"] || "",
       attendance,
-      weeklyPayable: formatMoney(dailyPay * presentUnits + overtime * 175 - lateFine),
+      staffCount,
+      weeklyPay: formatMoney(dailyPay * staffCount * weeklyDays + overtime * 175 - lateFine),
     };
   }
 
@@ -982,11 +1013,11 @@ export class ProjectWorkspacePage {
     if (section === "labour") {
       return [
         { key: "attendanceDate", label: "Date" },
-        { key: "labourName", label: "Staff Name" },
+        { key: "staffName", label: "Staff Name" },
         { key: "attendance", label: "Attendance" },
         { key: "shift", label: "Shift" },
         { key: "overtimeLate", label: "Overtime / Late" },
-        { key: "weeklyPayable", label: "Payable" },
+        { key: "weeklyPay", label: "Weekly Pay" },
       ];
     }
     return this.columnsFor(section);
@@ -1003,11 +1034,11 @@ export class ProjectWorkspacePage {
   private labourSummaryHtml(rows: TableRow[]): string {
     const summary = new Map<string, { present: number; absent: number; payable: number }>();
     for (const row of rows) {
-      const name = String(row["labourName"] || "Unnamed");
+      const name = String(row["staffName"] || row["labourName"] || "Unnamed");
       const current = summary.get(name) ?? { present: 0, absent: 0, payable: 0 };
       if (String(row["attendance"] || "").toLowerCase() === "absent") current.absent += 1;
       else current.present += 1;
-      current.payable += this.moneyNumber(row["weeklyPayable"]);
+      current.payable += this.moneyNumber(row["weeklyPay"] ?? row["weeklyPayable"]);
       summary.set(name, current);
     }
     if (!summary.size) return "";
@@ -1068,6 +1099,11 @@ export class ProjectWorkspacePage {
 </body>
 </html>`);
     reportWindow.document.close();
+  }
+
+  private countFromNotes(notes: string, label: string): number {
+    const match = notes.match(new RegExp(`${label}\\s*[-:]\\s*(\\d+)`, "i"));
+    return match ? Number(match[1]) : 0;
   }
 
   private moneyNumber(value: unknown): number {

@@ -8814,6 +8814,36 @@ body {
   font-weight: 760;
 }
 
+.row-actions {
+  min-width: 54px !important;
+  text-align: center;
+}
+
+.row-actions .icon-row-action {
+  display: inline-grid !important;
+  place-items: center !important;
+  width: 32px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 !important;
+  border: 1px solid #d7dee8 !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  color: #526070 !important;
+}
+
+.row-actions .icon-row-action ion-icon {
+  width: 16px !important;
+  height: 16px !important;
+  font-size: 16px !important;
+}
+
+.row-actions .icon-row-action.danger:hover {
+  border-color: #fecdd3 !important;
+  background: #fff1f2 !important;
+  color: #be123c !important;
+}
+
 .dark-mode .operations-table .editable-cell[contenteditable="true"]:focus {
   background: #0d1728 !important;
   box-shadow: inset 0 0 0 2px rgba(155, 188, 255, 0.54) !important;
@@ -8830,4 +8860,16 @@ body {
 .dark-mode .operations-table td.select-cell select:focus {
   border-color: #9bbcff;
   box-shadow: 0 0 0 3px rgba(155, 188, 255, 0.18);
+}
+
+.dark-mode .row-actions .icon-row-action {
+  border-color: #385175 !important;
+  background: #101c30 !important;
+  color: #dce8ff !important;
+}
+
+.dark-mode .row-actions .icon-row-action.danger:hover {
+  border-color: #fda4af !important;
+  background: rgba(190, 18, 60, 0.18) !important;
+  color: #fda4af !important;
 }
