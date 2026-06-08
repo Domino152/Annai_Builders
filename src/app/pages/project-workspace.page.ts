@@ -310,10 +310,10 @@ const sectionConfigs: SectionConfig[] = [
 
               <div class="expense-opening-editor" *ngIf="activeSection() === 'expenses'">
                 <label>
-                  <span>Opening Balance</span>
-                  <strong *ngIf="!expenseOpeningEdit()">{{ expenseOpeningBalanceLabel() }}</strong>
+                  <span>{{ expenseOpeningTitleLabel() }}</span>
+                  <strong *ngIf="!expenseOpeningEdit() || activeSiteFilter() === 'All'">{{ expenseOpeningBalanceLabel() }}</strong>
                   <input
-                    *ngIf="expenseOpeningEdit()"
+                    *ngIf="expenseOpeningEdit() && activeSiteFilter() !== 'All'"
                     inputmode="decimal"
                     [value]="expenseOpeningBalanceInput()"
                     (input)="updateExpenseOpeningBalance($any($event.target).value)"
@@ -323,7 +323,7 @@ const sectionConfigs: SectionConfig[] = [
                   <span>{{ expenseOpeningSiteLabel() }}</span>
                   <strong>Current balance {{ expenseCurrentBalanceLabel() }}</strong>
                 </div>
-                <button type="button" class="opening-edit-action" (click)="toggleExpenseOpeningEdit()">
+                <button type="button" class="opening-edit-action" *ngIf="activeSiteFilter() !== 'All'" (click)="toggleExpenseOpeningEdit()">
                   <ion-icon [name]="expenseOpeningEdit() ? 'checkmark-outline' : 'create-outline'"></ion-icon>
                   {{ expenseOpeningEdit() ? 'Save' : 'Edit' }}
                 </button>
@@ -653,7 +653,19 @@ export class ProjectWorkspacePage {
 
   columnsFor(section: ModuleKey): FieldSchema[] {
     const base = sectionConfigs.find((config) => config.key === section)?.columns ?? [];
-    return [...base, ...this.data.customFieldsFor(section)];
+    const custom = this.data.customFieldsFor(section);
+    return section === "labour" ? this.withLabourWageColumns(base, custom) : [...base, ...custom];
+  }
+
+  private withLabourWageColumns(base: FieldSchema[], custom: FieldSchema[]): FieldSchema[] {
+    const wageFields = custom.filter((field) => this.isLabourWageField(field));
+    const otherFields = custom.filter((field) => !this.isLabourWageField(field));
+    const orderedBase = base.flatMap((field) => (field.key === "staffCount" ? [...wageFields, field] : [field]));
+    return [...orderedBase, ...otherFields];
+  }
+
+  private isLabourWageField(field: FieldSchema): boolean {
+    return field.label.toLowerCase().includes("daily wage");
   }
 
   visibleRows(section: ModuleKey): TableRow[] {
@@ -717,6 +729,7 @@ export class ProjectWorkspacePage {
 
   selectSite(site: string) {
     this.activeSite.set(site);
+    this.expenseOpeningEdit.set(false);
     this.tableSearch.set("");
   }
 
@@ -983,6 +996,7 @@ export class ProjectWorkspacePage {
       attendanceDate: "2026-06-05",
       staffName: row.party,
       site: row.site,
+      dailyWage: row.dailyWage,
       labourTypes: this.labourTypesFromRow(row),
       staffCount: row.presentCount,
       attendance: "Present",
@@ -1243,7 +1257,7 @@ export class ProjectWorkspacePage {
 
   private withLabourPayable(row: TableRow): TableRow {
     const attendance = String(row["attendance"] || "Present");
-    const labourTypes = String(row["labourTypes"] || row["notes"] || "").trim();
+    const labourTypes = this.cleanLabourTypeText(String(row["labourTypes"] || row["notes"] || "").trim());
     const enteredStaffCount = this.moneyNumber(row["staffCount"]);
     const staffCount = this.staffCountFromLabourTypes(labourTypes) || enteredStaffCount || this.moneyNumber(row["presentUnits"]) || 1;
     return {
@@ -1290,7 +1304,7 @@ export class ProjectWorkspacePage {
   private labourTypesFromRow(row: { category: string; notes: string; presentCount: number; dailyWage?: number }): string {
     const notes = row.notes.trim();
     if (this.staffCountFromLabourTypes(notes)) return notes;
-    return `${row.category}: ${row.presentCount}${row.dailyWage ? ` @ ${formatMoney(row.dailyWage)}` : ""}`;
+    return `${row.category}: ${row.presentCount}`;
   }
 
   private normalizeShift(value: unknown): string {
@@ -1323,8 +1337,16 @@ export class ProjectWorkspacePage {
     const existing = existingKey ? entries.get(existingKey) : undefined;
     entries.set(existingKey ?? labourType, { count, wage: dailyWage || existing?.wage || 0 });
     return [...entries.entries()]
-      .map(([type, value]) => `${type}: ${value.count}${value.wage ? ` @ ${formatMoney(value.wage)}` : ""}`)
+      .map(([type, value]) => `${type}: ${value.count}`)
       .join(", ");
+  }
+
+  private cleanLabourTypeText(value: string): string {
+    const entries = value
+      .split(/[,;\n]+/)
+      .map((part) => this.parseLabourTypeEntrySafe(part))
+      .filter((entry): entry is { type: string; count: number; wage: number } => Boolean(entry));
+    return entries.length ? entries.map((entry) => `${entry.type}: ${entry.count}`).join(", ") : value;
   }
 
   private parseLabourTypeEntrySafe(value: string): { type: string; count: number; wage: number } | null {
@@ -1369,7 +1391,11 @@ export class ProjectWorkspacePage {
 
   expenseOpeningSiteLabel(): string {
     const site = this.activeSiteFilter();
-    return site === "All" ? "Select a site to edit its opening balance" : `${site} opening balance`;
+    return site === "All" ? "Select a site to edit opening balance" : `${site} opening balance`;
+  }
+
+  expenseOpeningTitleLabel(): string {
+    return this.activeSiteFilter() === "All" ? "Total Opening Balance" : "Opening Balance";
   }
 
   expenseOpeningBalanceInput(): string {
@@ -1381,6 +1407,10 @@ export class ProjectWorkspacePage {
   }
 
   toggleExpenseOpeningEdit() {
+    if (this.activeSiteFilter() === "All") {
+      this.expenseOpeningEdit.set(false);
+      return;
+    }
     this.expenseOpeningEdit.update((isEditing) => !isEditing);
   }
 
@@ -1503,15 +1533,18 @@ export class ProjectWorkspacePage {
       ];
     }
     if (section === "labour") {
+      const wageFields = this.data.customFieldsFor("labour").filter((field) => this.isLabourWageField(field));
       return [
         { key: "attendanceDate", label: "Date" },
         { key: "staffName", label: "Staff Name" },
         { key: "labourTypes", label: "Labour Types" },
+        ...wageFields,
         { key: "staffCount", label: "Staff Count" },
         { key: "attendance", label: "Attendance" },
         { key: "shift", label: "Shift" },
         { key: "overtimeLate", label: "Overtime / Late" },
-        ...this.data.customFieldsFor("labour").filter((field) => field.label.toLowerCase().includes("daily wage")),
+        { key: "weeklyPayByType", label: "Weekly Pay by Labour Type" },
+        { key: "weeklyPayTotal", label: "Combined Weekly Pay" },
       ];
     }
     return this.columnsFor(section);
@@ -1519,31 +1552,96 @@ export class ProjectWorkspacePage {
 
   private reportRows(section: ModuleKey, rows: TableRow[]): TableRow[] {
     if (section !== "labour") return rows;
-    return rows.map((row) => ({
-      ...row,
-      overtimeLate: `${row["overtime"] || "0"} overtime / ${row["lateFine"] || "0"} late fine`,
+    return rows.map((row) => {
+      const weeklyPay = this.labourWeeklyPayForRow(row);
+      return {
+        ...row,
+        overtimeLate: `${row["overtime"] || "0"} overtime / ${row["lateFine"] || "0"} late fine`,
+        weeklyPayByType: weeklyPay.breakup,
+        weeklyPayTotal: formatMoney(weeklyPay.total),
+      };
+    });
+  }
+
+  private labourWeeklyPayForRow(row: TableRow): { breakup: string; total: number; items: Array<{ type: string; count: number; wage: number; amount: number }> } {
+    if (String(row["attendance"] || "").toLowerCase() === "absent") return { breakup: "Absent", total: 0, items: [] };
+    const entries = this.labourTypeEntriesForRow(row);
+    const shift = this.moneyNumber(row["shift"]) || 1;
+    const items = entries.map((entry) => {
+      const amount = entry.count * entry.wage * shift;
+      return { ...entry, amount };
+    });
+    const total = items.reduce((sum, item) => sum + item.amount, 0);
+    return {
+      breakup: items.length ? items.map((item) => `${item.type}: ${formatMoney(item.amount)}`).join(", ") : formatMoney(0),
+      total,
+      items,
+    };
+  }
+
+  private labourTypeEntriesForRow(row: TableRow): Array<{ type: string; count: number; wage: number }> {
+    const labourTypes = String(row["labourTypes"] || row["notes"] || "").trim();
+    const parsed = labourTypes
+      .split(/[,;\n]+/)
+      .map((part) => this.parseLabourTypeEntrySafe(part))
+      .filter((entry): entry is { type: string; count: number; wage: number } => Boolean(entry));
+    const entries = parsed.length
+      ? parsed
+      : [{ type: "Labour", count: this.moneyNumber(row["staffCount"]) || this.moneyNumber(row["presentUnits"]) || 0, wage: 0 }];
+    return entries.map((entry) => ({
+      type: entry.type,
+      count: entry.count,
+      wage: this.dailyWageForLabourType(row, entry.type, entries.length) || entry.wage,
     }));
   }
 
+  private dailyWageForLabourType(row: TableRow, labourType: string, typeCount: number): number {
+    const label = `${this.titleCase(labourType)} Daily Wage`.toLowerCase();
+    const generatedKey = label.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const field = this.data.customFieldsFor("labour").find((candidate) => candidate.label.toLowerCase() === label);
+    const wage = this.moneyNumber(row[field?.key ?? generatedKey]);
+    if (wage) return wage;
+    return typeCount === 1 ? this.moneyNumber(row["dailyWage"]) : 0;
+  }
+
   private labourSummaryHtml(rows: TableRow[]): string {
-    const summary = new Map<string, { present: number; absent: number; staff: number }>();
+    const staffSummary = new Map<string, { present: number; absent: number; staff: number }>();
+    const wageSummary = new Map<string, { staff: number; payable: number }>();
     for (const row of rows) {
       const name = String(row["staffName"] || row["labourName"] || "Unnamed");
-      const current = summary.get(name) ?? { present: 0, absent: 0, staff: 0 };
+      const current = staffSummary.get(name) ?? { present: 0, absent: 0, staff: 0 };
       const isAbsent = String(row["attendance"] || "").toLowerCase() === "absent";
       if (isAbsent) current.absent += 1;
       else current.present += 1;
       const staffCount = this.moneyNumber(row["staffCount"]) || this.staffCountFromLabourTypes(String(row["labourTypes"] || ""));
       if (!isAbsent) current.staff += staffCount;
-      summary.set(name, current);
+      staffSummary.set(name, current);
+
+      const weeklyPay = this.labourWeeklyPayForRow(row);
+      for (const item of weeklyPay.items) {
+        const summary = wageSummary.get(item.type) ?? { staff: 0, payable: 0 };
+        summary.staff += item.count;
+        summary.payable += item.amount;
+        wageSummary.set(item.type, summary);
+      }
     }
-    if (!summary.size) return "";
-    return `<section class="summary"><h2>Labour Summary</h2>${[...summary.entries()]
+    if (!staffSummary.size && !wageSummary.size) return "";
+    const combinedPayable = [...wageSummary.values()].reduce((sum, value) => sum + value.payable, 0);
+    const wageHtml = wageSummary.size
+      ? `<h2>Labour Wage Summary</h2>${[...wageSummary.entries()]
+          .map(
+            ([type, value]) =>
+              `<div><strong>${this.escapeHtml(type)}</strong><span>Staff units: ${value.staff}</span><span>Weekly pay: ${this.escapeHtml(formatMoney(value.payable))}</span></div>`,
+          )
+          .join("")}<div><strong>Combined Payable</strong><span>${this.escapeHtml(formatMoney(combinedPayable))}</span></div>`
+      : "";
+    const staffHtml = [...staffSummary.entries()]
       .map(
         ([name, value]) =>
           `<div><strong>${this.escapeHtml(name)}</strong><span>Present: ${value.present}</span><span>Absent: ${value.absent}</span><span>Staff: ${value.staff}</span></div>`,
       )
-      .join("")}</section>`;
+      .join("");
+    return `<section class="summary">${wageHtml}<h2>Attendance Summary</h2>${staffHtml}</section>`;
   }
 
   private expenseSummaryHtml(rows: TableRow[]): string {

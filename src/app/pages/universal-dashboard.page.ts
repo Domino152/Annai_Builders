@@ -625,7 +625,19 @@ export class UniversalDashboardPage {
 
   columnsForActive(): FieldSchema[] {
     const base = this.activeConfig().columns;
-    return [...base, ...this.data.customFieldsFor(this.activeModule())];
+    const custom = this.data.customFieldsFor(this.activeModule());
+    return this.activeModule() === "labour" ? this.withLabourWageColumns(base, custom) : [...base, ...custom];
+  }
+
+  private withLabourWageColumns(base: FieldSchema[], custom: FieldSchema[]): FieldSchema[] {
+    const wageFields = custom.filter((field) => this.isLabourWageField(field));
+    const otherFields = custom.filter((field) => !this.isLabourWageField(field));
+    const orderedBase = base.flatMap((field) => (field.key === "staffCount" ? [...wageFields, field] : [field]));
+    return [...orderedBase, ...otherFields];
+  }
+
+  private isLabourWageField(field: FieldSchema): boolean {
+    return field.label.toLowerCase().includes("daily wage");
   }
 
   visibleRows(): TableRow[] {
@@ -910,6 +922,7 @@ export class UniversalDashboardPage {
       site: row.site,
       attendanceDate: "2026-06-05",
       staffName: row.party,
+      dailyWage: row.dailyWage,
       labourTypes: this.labourTypesFromRow(row),
       staffCount: row.presentCount,
       attendance: "Present",
@@ -1205,7 +1218,7 @@ export class UniversalDashboardPage {
 
   private withLabourPayable(row: TableRow): TableRow {
     const attendance = String(row["attendance"] || "Present");
-    const labourTypes = String(row["labourTypes"] || row["notes"] || "").trim();
+    const labourTypes = this.cleanLabourTypeText(String(row["labourTypes"] || row["notes"] || "").trim());
     const enteredStaffCount = this.moneyNumber(row["staffCount"]);
     const staffCount = this.staffCountFromLabourTypes(labourTypes) || enteredStaffCount || this.moneyNumber(row["presentUnits"]) || 1;
     return {
@@ -1259,7 +1272,7 @@ export class UniversalDashboardPage {
   private labourTypesFromRow(row: { category: string; notes: string; presentCount: number; dailyWage?: number }): string {
     const notes = row.notes.trim();
     if (this.staffCountFromLabourTypes(notes)) return notes;
-    return `${row.category}: ${row.presentCount}${row.dailyWage ? ` @ ${formatMoney(row.dailyWage)}` : ""}`;
+    return `${row.category}: ${row.presentCount}`;
   }
 
   private normalizeShift(value: unknown): string {
@@ -1292,8 +1305,16 @@ export class UniversalDashboardPage {
     const existing = existingKey ? entries.get(existingKey) : undefined;
     entries.set(existingKey ?? labourType, { count, wage: dailyWage || existing?.wage || 0 });
     return [...entries.entries()]
-      .map(([type, value]) => `${type}: ${value.count}${value.wage ? ` @ ${formatMoney(value.wage)}` : ""}`)
+      .map(([type, value]) => `${type}: ${value.count}`)
       .join(", ");
+  }
+
+  private cleanLabourTypeText(value: string): string {
+    const entries = value
+      .split(/[,;\n]+/)
+      .map((part) => this.parseLabourTypeEntrySafe(part))
+      .filter((entry): entry is { type: string; count: number; wage: number } => Boolean(entry));
+    return entries.length ? entries.map((entry) => `${entry.type}: ${entry.count}`).join(", ") : value;
   }
 
   private parseLabourTypeEntrySafe(value: string): { type: string; count: number; wage: number } | null {
@@ -1398,15 +1419,18 @@ export class UniversalDashboardPage {
       ];
     }
     if (module === "labour") {
+      const wageFields = this.data.customFieldsFor("labour").filter((field) => this.isLabourWageField(field));
       return [
         { key: "attendanceDate", label: "Date" },
         { key: "staffName", label: "Staff Name" },
         { key: "labourTypes", label: "Labour Types" },
+        ...wageFields,
         { key: "staffCount", label: "Staff Count" },
         { key: "attendance", label: "Attendance" },
         { key: "shift", label: "Shift" },
         { key: "overtimeLate", label: "Overtime / Late" },
-        ...this.data.customFieldsFor("labour").filter((field) => field.label.toLowerCase().includes("daily wage")),
+        { key: "weeklyPayByType", label: "Weekly Pay by Labour Type" },
+        { key: "weeklyPayTotal", label: "Combined Weekly Pay" },
       ];
     }
     return this.columnsForActive();
@@ -1414,31 +1438,96 @@ export class UniversalDashboardPage {
 
   private reportRows(module: DashboardModule, rows: TableRow[]): TableRow[] {
     if (module !== "labour") return rows;
-    return rows.map((row) => ({
-      ...row,
-      overtimeLate: `${row["overtime"] || "0"} overtime / ${row["lateFine"] || "0"} late fine`,
+    return rows.map((row) => {
+      const weeklyPay = this.labourWeeklyPayForRow(row);
+      return {
+        ...row,
+        overtimeLate: `${row["overtime"] || "0"} overtime / ${row["lateFine"] || "0"} late fine`,
+        weeklyPayByType: weeklyPay.breakup,
+        weeklyPayTotal: formatMoney(weeklyPay.total),
+      };
+    });
+  }
+
+  private labourWeeklyPayForRow(row: TableRow): { breakup: string; total: number; items: Array<{ type: string; count: number; wage: number; amount: number }> } {
+    if (String(row["attendance"] || "").toLowerCase() === "absent") return { breakup: "Absent", total: 0, items: [] };
+    const entries = this.labourTypeEntriesForRow(row);
+    const shift = this.moneyNumber(row["shift"]) || 1;
+    const items = entries.map((entry) => {
+      const amount = entry.count * entry.wage * shift;
+      return { ...entry, amount };
+    });
+    const total = items.reduce((sum, item) => sum + item.amount, 0);
+    return {
+      breakup: items.length ? items.map((item) => `${item.type}: ${formatMoney(item.amount)}`).join(", ") : formatMoney(0),
+      total,
+      items,
+    };
+  }
+
+  private labourTypeEntriesForRow(row: TableRow): Array<{ type: string; count: number; wage: number }> {
+    const labourTypes = String(row["labourTypes"] || row["notes"] || "").trim();
+    const parsed = labourTypes
+      .split(/[,;\n]+/)
+      .map((part) => this.parseLabourTypeEntrySafe(part))
+      .filter((entry): entry is { type: string; count: number; wage: number } => Boolean(entry));
+    const entries = parsed.length
+      ? parsed
+      : [{ type: "Labour", count: this.moneyNumber(row["staffCount"]) || this.moneyNumber(row["presentUnits"]) || 0, wage: 0 }];
+    return entries.map((entry) => ({
+      type: entry.type,
+      count: entry.count,
+      wage: this.dailyWageForLabourType(row, entry.type, entries.length) || entry.wage,
     }));
   }
 
+  private dailyWageForLabourType(row: TableRow, labourType: string, typeCount: number): number {
+    const label = `${this.titleCase(labourType)} Daily Wage`.toLowerCase();
+    const generatedKey = label.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const field = this.data.customFieldsFor("labour").find((candidate) => candidate.label.toLowerCase() === label);
+    const wage = this.moneyNumber(row[field?.key ?? generatedKey]);
+    if (wage) return wage;
+    return typeCount === 1 ? this.moneyNumber(row["dailyWage"]) : 0;
+  }
+
   private labourSummaryHtml(rows: TableRow[]): string {
-    const summary = new Map<string, { present: number; absent: number; staff: number }>();
+    const staffSummary = new Map<string, { present: number; absent: number; staff: number }>();
+    const wageSummary = new Map<string, { staff: number; payable: number }>();
     for (const row of rows) {
       const name = String(row["staffName"] || row["labourName"] || "Unnamed");
-      const current = summary.get(name) ?? { present: 0, absent: 0, staff: 0 };
+      const current = staffSummary.get(name) ?? { present: 0, absent: 0, staff: 0 };
       const isAbsent = String(row["attendance"] || "").toLowerCase() === "absent";
       if (isAbsent) current.absent += 1;
       else current.present += 1;
       const staffCount = this.moneyNumber(row["staffCount"]) || this.staffCountFromLabourTypes(String(row["labourTypes"] || ""));
       if (!isAbsent) current.staff += staffCount;
-      summary.set(name, current);
+      staffSummary.set(name, current);
+
+      const weeklyPay = this.labourWeeklyPayForRow(row);
+      for (const item of weeklyPay.items) {
+        const summary = wageSummary.get(item.type) ?? { staff: 0, payable: 0 };
+        summary.staff += item.count;
+        summary.payable += item.amount;
+        wageSummary.set(item.type, summary);
+      }
     }
-    if (!summary.size) return "";
-    return `<section class="summary"><h2>Labour Summary</h2>${[...summary.entries()]
+    if (!staffSummary.size && !wageSummary.size) return "";
+    const combinedPayable = [...wageSummary.values()].reduce((sum, value) => sum + value.payable, 0);
+    const wageHtml = wageSummary.size
+      ? `<h2>Labour Wage Summary</h2>${[...wageSummary.entries()]
+          .map(
+            ([type, value]) =>
+              `<div><strong>${this.escapeHtml(type)}</strong><span>Staff units: ${value.staff}</span><span>Weekly pay: ${this.escapeHtml(formatMoney(value.payable))}</span></div>`,
+          )
+          .join("")}<div><strong>Combined Payable</strong><span>${this.escapeHtml(formatMoney(combinedPayable))}</span></div>`
+      : "";
+    const staffHtml = [...staffSummary.entries()]
       .map(
         ([name, value]) =>
           `<div><strong>${this.escapeHtml(name)}</strong><span>Present: ${value.present}</span><span>Absent: ${value.absent}</span><span>Staff: ${value.staff}</span></div>`,
       )
-      .join("")}</section>`;
+      .join("");
+    return `<section class="summary">${wageHtml}<h2>Attendance Summary</h2>${staffHtml}</section>`;
   }
 
   private expenseSummaryHtml(rows: TableRow[]): string {
