@@ -617,6 +617,17 @@ const dashboardModules: ModuleConfig[] = [
                     <datalist id="universal-labour-type-options">
                       <option *ngFor="let option of labourTypeDialogOptions()" [value]="option"></option>
                     </datalist>
+                    <div class="labour-type-suggestion-row" *ngIf="labourTypeDialogOptions().length">
+                      <button
+                        *ngFor="let option of labourTypeDialogOptions()"
+                        type="button"
+                        [class.selected]="labourTypeName().toLowerCase() === option.toLowerCase()"
+                        (mousedown)="$event.preventDefault()"
+                        (click)="labourTypeName.set(option)"
+                      >
+                        {{ option }}
+                      </button>
+                    </div>
                   </label>
                   <label>
                     <span>Staff Count</span>
@@ -735,6 +746,9 @@ export class UniversalDashboardPage {
 
   filterValues(key: string): string[] {
     const values = new Set<string>();
+    for (const option of this.selectOptions(this.activeModule(), key)) {
+      if (option) values.add(option);
+    }
     for (const row of this.withComputedRows(this.activeModule(), this.rowsFor(this.activeModule()))) {
       const value = row[key];
       if (value !== undefined && value !== "") values.add(String(value));
@@ -921,7 +935,7 @@ export class UniversalDashboardPage {
 
   openLabourTypeDialog(row: TableRow) {
     this.labourTypeRowId.set(String(row["__rowId"] || ""));
-    this.labourTypeName.set(this.labourTypeOptionsForRow(row)[0] ?? "");
+    this.labourTypeName.set("");
     this.labourTypeCount.set("1");
     this.labourTypeDailyWage.set("");
     this.labourTypeDialogOpen.set(true);
@@ -1197,7 +1211,7 @@ export class UniversalDashboardPage {
   }
 
   selectOptions(module: DashboardModule, key: string): string[] {
-    if (key === "site") return this.siteOptionsForModule(module);
+    if (key === "site" || key === "assignedSite") return this.siteOptionsForModule(module);
     if (key === "project") return this.projectNameOptions();
     if (key === "projectId") return this.projectIdOptions();
     if (key === "client" || key === "clientName") return this.clientNameOptions();
@@ -1374,7 +1388,8 @@ export class UniversalDashboardPage {
     return [...rows].sort((first, second) => this.expenseRowSortValue(first).localeCompare(this.expenseRowSortValue(second))).map((row) => {
       const transactionType = String(row["transactionType"] || "Site Expense");
       const groupKey = this.expenseGroupKey(row);
-      const previousBalance = balances.get(groupKey) ?? this.expenseOpeningBalanceFor(row);
+      const allowProjectFallback = Boolean(this.selectedFilters()["project"] && this.selectedFilters()["site"]);
+      const previousBalance = balances.get(groupKey) ?? this.expenseOpeningBalanceFor(row, allowProjectFallback);
       const balance = previousBalance + this.expenseSignedAmount(row, transactionType);
       balances.set(groupKey, balance);
       return {
@@ -1575,13 +1590,14 @@ export class UniversalDashboardPage {
     return `${this.expenseGroupKey(row)}::${date}::${row["__rowId"] || ""}`;
   }
 
-  private expenseOpeningBalanceFor(row: TableRow): number {
+  private expenseOpeningBalanceFor(row: TableRow, allowProjectFallback = true): number {
     const explicitProjectId = String(row["projectId"] || row["__projectId"] || "");
     const site = String(row["site"] || "Project");
     const savedOpening = explicitProjectId ? this.data.expenseOpeningBalanceFor(explicitProjectId, site) : undefined;
     if (savedOpening !== undefined) return savedOpening;
     const explicitOpening = this.explicitExpenseOpeningForGroup(explicitProjectId, String(row["project"] || ""), String(row["site"] || ""));
     if (explicitOpening) return explicitOpening;
+    if (!allowProjectFallback) return 0;
     const project =
       this.data.projectById(explicitProjectId) ??
       this.data.projects().find((projectRow) => projectRow.name === row["project"] || projectRow.id === row["project"]);
@@ -1770,7 +1786,9 @@ export class UniversalDashboardPage {
     const closingByGroup = new Map<string, number>();
     const spent = rows.reduce((sum, row) => {
       const key = this.expenseGroupKey(row);
-      if (!openingByGroup.has(key)) openingByGroup.set(key, this.expenseOpeningBalanceFor(row));
+      if (!openingByGroup.has(key)) {
+        openingByGroup.set(key, this.expenseOpeningBalanceFor(row, Boolean(this.selectedFilters()["project"] && this.selectedFilters()["site"])));
+      }
       closingByGroup.set(key, this.moneyNumber(row["runningBalance"]));
       const amount = this.expenseSignedAmount(row);
       return amount < 0 ? sum + Math.abs(amount) : sum;

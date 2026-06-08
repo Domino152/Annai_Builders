@@ -311,27 +311,6 @@ const sectionConfigs: SectionConfig[] = [
                 </button>
               </div>
 
-              <div class="expense-opening-editor" *ngIf="activeSection() === 'expenses'">
-                <label>
-                  <span>{{ expenseOpeningTitleLabel() }}</span>
-                  <strong *ngIf="!expenseOpeningEdit() || activeSiteFilter() === 'All'">{{ expenseOpeningBalanceLabel() }}</strong>
-                  <input
-                    *ngIf="expenseOpeningEdit() && activeSiteFilter() !== 'All'"
-                    inputmode="decimal"
-                    [value]="expenseOpeningBalanceInput()"
-                    (input)="updateExpenseOpeningBalance($any($event.target).value)"
-                  />
-                </label>
-                <div>
-                  <span>{{ expenseOpeningSiteLabel() }}</span>
-                  <strong>Current balance {{ expenseCurrentBalanceLabel() }}</strong>
-                </div>
-                <button type="button" class="opening-edit-action" *ngIf="activeSiteFilter() !== 'All'" (click)="toggleExpenseOpeningEdit()">
-                  <ion-icon [name]="expenseOpeningEdit() ? 'checkmark-outline' : 'create-outline'"></ion-icon>
-                  {{ expenseOpeningEdit() ? 'Save' : 'Edit' }}
-                </button>
-              </div>
-
               <div class="expense-ledger-summary" *ngIf="activeSection() === 'expenses'">
                 <div><span>Opening</span><strong>{{ expenseOpeningBalanceLabel() }}</strong></div>
                 <div><span>Cash Added</span><strong>{{ expenseCashAddedLabel() }}</strong></div>
@@ -584,6 +563,17 @@ const sectionConfigs: SectionConfig[] = [
                     <datalist id="project-labour-type-options">
                       <option *ngFor="let option of labourTypeDialogOptions()" [value]="option"></option>
                     </datalist>
+                    <div class="labour-type-suggestion-row" *ngIf="labourTypeDialogOptions().length">
+                      <button
+                        *ngFor="let option of labourTypeDialogOptions()"
+                        type="button"
+                        [class.selected]="labourTypeName().toLowerCase() === option.toLowerCase()"
+                        (mousedown)="$event.preventDefault()"
+                        (click)="labourTypeName.set(option)"
+                      >
+                        {{ option }}
+                      </button>
+                    </div>
                   </label>
                   <label>
                     <span>Staff Count</span>
@@ -882,7 +872,7 @@ export class ProjectWorkspacePage {
 
   openLabourTypeDialog(row: TableRow) {
     this.labourTypeRowId.set(String(row["__rowId"] || ""));
-    this.labourTypeName.set(this.labourTypeOptionsForRow(row)[0] ?? "");
+    this.labourTypeName.set("");
     this.labourTypeCount.set("1");
     this.labourTypeDailyWage.set("");
     this.labourTypeDialogOpen.set(true);
@@ -1315,7 +1305,7 @@ export class ProjectWorkspacePage {
     return [...rows].sort((first, second) => this.expenseRowSortValue(first).localeCompare(this.expenseRowSortValue(second))).map((row) => {
       const transactionType = String(row["transactionType"] || row["expenseScope"] || "Site Expense");
       const groupKey = this.expenseGroupKey(row);
-      const previousBalance = balances.get(groupKey) ?? this.expenseOpeningBalanceFor(row);
+      const previousBalance = balances.get(groupKey) ?? this.expenseOpeningBalanceFor(row, this.activeSiteFilter() !== "All");
       const balance = previousBalance + this.expenseSignedAmount(row, transactionType);
       balances.set(groupKey, balance);
       return {
@@ -1502,9 +1492,10 @@ export class ProjectWorkspacePage {
       const rows = this.visibleRows("expenses");
       if (rows.length) {
         const openings = new Map<string, number>();
-        for (const row of rows) openings.set(this.expenseGroupKey(row), this.expenseOpeningBalanceFor(row));
+        for (const row of rows) openings.set(this.expenseGroupKey(row), this.expenseOpeningBalanceFor(row, false));
         return formatMoney([...openings.values()].reduce((sum, amount) => sum + amount, 0));
       }
+      return formatMoney(0);
     }
     return formatMoney(this.expenseOpeningBalanceFor({ projectId: this.projectId(), site: this.activeSiteFilter() }));
   }
@@ -1526,7 +1517,7 @@ export class ProjectWorkspacePage {
     const openingByGroup = new Map<string, number>();
     const cashAdded = rows.reduce((sum, row) => {
       const key = this.expenseGroupKey(row);
-      if (!openingByGroup.has(key)) openingByGroup.set(key, this.expenseOpeningBalanceFor(row));
+      if (!openingByGroup.has(key)) openingByGroup.set(key, this.expenseOpeningBalanceFor(row, this.activeSiteFilter() !== "All"));
       const amount = this.expenseSignedAmount(row);
       return amount > 0 ? sum + amount : sum;
     }, 0);
@@ -1552,13 +1543,14 @@ export class ProjectWorkspacePage {
     return `${this.expenseGroupKey(row)}::${date}::${row["__rowId"] || ""}`;
   }
 
-  private expenseOpeningBalanceFor(row: TableRow): number {
+  private expenseOpeningBalanceFor(row: TableRow, allowProjectFallback = true): number {
     const projectId = String(row["projectId"] || row["__projectId"] || this.projectId());
     const site = String(row["site"] || this.expenseEditableSite());
     const savedOpening = this.data.expenseOpeningBalanceFor(projectId, site);
     if (savedOpening !== undefined) return savedOpening;
     const explicitOpening = this.explicitExpenseOpeningForGroup(projectId, site);
     if (explicitOpening) return explicitOpening;
+    if (!allowProjectFallback) return 0;
     const project = this.data.projectById(projectId);
     return project?.expenseBalance ?? 0;
   }
@@ -1753,7 +1745,7 @@ export class ProjectWorkspacePage {
     const closingByGroup = new Map<string, number>();
     const spent = rows.reduce((sum, row) => {
       const key = this.expenseGroupKey(row);
-      if (!openingByGroup.has(key)) openingByGroup.set(key, this.expenseOpeningBalanceFor(row));
+      if (!openingByGroup.has(key)) openingByGroup.set(key, this.expenseOpeningBalanceFor(row, this.activeSiteFilter() !== "All"));
       closingByGroup.set(key, this.moneyNumber(row["runningBalance"]));
       const amount = this.expenseSignedAmount(row);
       return amount < 0 ? sum + Math.abs(amount) : sum;
