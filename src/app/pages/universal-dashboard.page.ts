@@ -1,1938 +1,3455 @@
 import { CommonModule } from "@angular/common";
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from "@angular/core";
 import { Router } from "@angular/router";
-import { IonContent, IonIcon, IonSplitPane } from "@ionic/angular/standalone";
-import { ErpDataService, type SharedTableField, type SharedTableRow } from "../data/erp-data.service";
-import { EnterpriseHeaderComponent } from "../shared/enterprise-header.component";
-import { EnterpriseSidebarComponent } from "../shared/enterprise-sidebar.component";
+import { IonContent, IonIcon } from "@ionic/angular/standalone";
+import type { ExpenseRow, LabourRow, MaterialRow, PaymentRow, Project } from "../../data/dashboardData";
+import { ErpDataService, type Client, type Subcontractor, type Supervisor, type Vendor } from "../data/erp-data.service";
 import { formatMoney, formatNumber, statusClass } from "../shared/format";
 
-type DashboardModule =
-  | "materials"
-  | "clients"
-  | "labour"
-  | "expenses"
-  | "generalExpenses"
-  | "payments"
-  | "vendors"
-  | "supervisors"
-  | "subcontractors"
-  | "reports";
-type TableRow = SharedTableRow;
-type FieldSchema = SharedTableField;
-type FilterSchema = { key: string; label: string };
-type ModuleConfig = {
-  key: DashboardModule;
-  label: string;
-  title: string;
-  description: string;
-  columns: FieldSchema[];
-  filters: FilterSchema[];
+type NavKey = "dashboard" | "clients" | "materials" | "vendors" | "subcontract" | "labours" | "supervisors" | "expenses" | "payments" | "reports" | "settings";
+type ExpenseMode = "site" | "general";
+type ClientSection = "materials" | "labours" | "vendors" | "subcontract" | "supervisors" | "siteExpense" | "reports";
+type ClientSite = { key: string; projectId: string; projectName: string; site: string; status: Project["status"]; completion: number; startDate: string };
+type EditableModule = "clients" | "materials" | "vendors" | "subcontract" | "labours" | "supervisors" | "expenses" | "payments";
+type FormMode = "add" | "edit";
+type FormField = { key: string; label: string; type?: "text" | "number" | "date" };
+type SiteExpenseGroup = {
+  key: string;
+  projectId: string;
+  projectName: string;
+  site: string;
+  supervisor: string;
+  spent: number;
+  received: number;
+  balance: number;
+  rows: ExpenseRow[];
 };
-
-const dashboardModules: ModuleConfig[] = [
-  {
-    key: "materials",
-    label: "Materials",
-    title: "All Material Records",
-    description: "Every material request, approval, vendor, purchase order, and remaining stock across all projects.",
-    columns: [
-      { key: "client", label: "Client" },
-      { key: "project", label: "Project" },
-      { key: "site", label: "Site" },
-      { key: "materialName", label: "Material Name" },
-      { key: "unit", label: "Unit" },
-      { key: "requestedQuantity", label: "Requested Quantity" },
-      { key: "approvedQuantity", label: "Approved Quantity" },
-      { key: "vendor", label: "Vendor" },
-      { key: "poNumber", label: "PO Number" },
-      { key: "remainingStock", label: "Remaining Stock" },
-      { key: "status", label: "Status" },
-    ],
-    filters: [
-      { key: "client", label: "Client" },
-      { key: "project", label: "Project" },
-      { key: "site", label: "Site" },
-      { key: "vendor", label: "Vendor" },
-      { key: "status", label: "Status" },
-    ],
-  },
-  {
-    key: "clients",
-    label: "Clients",
-    title: "All Clients",
-    description: "Every client with contact, project count, active sites, value, received amount, and pending balance.",
-    columns: [
-      { key: "clientId", label: "Client ID" },
-      { key: "clientName", label: "Client Name" },
-      { key: "mobile", label: "Mobile Number" },
-      { key: "address", label: "Address" },
-      { key: "projectCount", label: "Project Count" },
-      { key: "activeSites", label: "Active Sites" },
-      { key: "totalProjectValue", label: "Total Project Value" },
-      { key: "amountReceived", label: "Amount Received" },
-      { key: "pendingBalance", label: "Pending Balance" },
-      { key: "supervisor", label: "Supervisor" },
-      { key: "status", label: "Status" },
-    ],
-    filters: [
-      { key: "status", label: "Status" },
-      { key: "supervisor", label: "Supervisor" },
-      { key: "projectCount", label: "Project Count" },
-    ],
-  },
-  {
-    key: "labour",
-    label: "Labour",
-    title: "All Labour Attendance",
-    description: "Every staff attendance row across sites with labour types, staff count, shift, overtime, and fine.",
-    columns: [
-      { key: "client", label: "Client" },
-      { key: "clientId", label: "Client ID" },
-      { key: "projectId", label: "Project ID" },
-      { key: "project", label: "Project" },
-      { key: "site", label: "Site" },
-      { key: "attendanceDate", label: "Date" },
-      { key: "staffName", label: "Staff Name" },
-      { key: "labourTypes", label: "Labour Types" },
-      { key: "notes", label: "Notes" },
-      { key: "staffCount", label: "Staff Count" },
-      { key: "attendance", label: "Attendance" },
-      { key: "shift", label: "Shift" },
-      { key: "overtime", label: "Overtime" },
-      { key: "lateFine", label: "Late Fine" },
-      { key: "paymentMode", label: "Payment Mode" },
-      { key: "status", label: "Status" },
-    ],
-    filters: [
-      { key: "project", label: "Project" },
-      { key: "site", label: "Site" },
-      { key: "attendance", label: "Attendance" },
-      { key: "status", label: "Status" },
-    ],
-  },
-  {
-    key: "expenses",
-    label: "Site Expenses",
-    title: "Site Expense Details",
-    description: "Project-linked supervisor ledger and site expense details across active sites.",
-    columns: [
-      { key: "client", label: "Client" },
-      { key: "project", label: "Project" },
-      { key: "site", label: "Site" },
-      { key: "expenseDate", label: "Expense Date" },
-      { key: "transactionType", label: "Transaction Type" },
-      { key: "description", label: "Description" },
-      { key: "amount", label: "Amount" },
-      { key: "runningBalance", label: "Balance" },
-      { key: "supervisor", label: "Supervisor" },
-      { key: "reference", label: "Bill / Reference" },
-      { key: "approvalStatus", label: "Approval Status" },
-    ],
-    filters: [
-      { key: "project", label: "Project" },
-      { key: "site", label: "Site" },
-      { key: "supervisor", label: "Supervisor" },
-      { key: "approvalStatus", label: "Approval Status" },
-    ],
-  },
-  {
-    key: "generalExpenses",
-    label: "General Expenses",
-    title: "General Office Expenses",
-    description: "Office expenses not tied to a site, such as admin purchases, courier, printing, and overhead payments.",
-    columns: [
-      { key: "expenseDate", label: "Expense Date" },
-      { key: "department", label: "Department / Office" },
-      { key: "description", label: "Description" },
-      { key: "category", label: "Category" },
-      { key: "amount", label: "Amount" },
-      { key: "paidBy", label: "Paid By" },
-      { key: "reference", label: "Bill / Reference" },
-      { key: "approvalStatus", label: "Approval Status" },
-    ],
-    filters: [
-      { key: "department", label: "Department" },
-      { key: "category", label: "Category" },
-      { key: "paidBy", label: "Paid By" },
-      { key: "approvalStatus", label: "Approval Status" },
-    ],
-  },
-  {
-    key: "payments",
-    label: "Payments",
-    title: "All Payments",
-    description: "Every client payment collection with receipt, mode, transaction reference, collector, and approval status.",
-    columns: [
-      { key: "client", label: "Client" },
-      { key: "project", label: "Project" },
-      { key: "paymentDate", label: "Payment Date" },
-      { key: "amount", label: "Amount" },
-      { key: "mode", label: "Mode" },
-      { key: "transactionReference", label: "Transaction Reference" },
-      { key: "receiptNumber", label: "Receipt Number" },
-      { key: "collectedBy", label: "Collected By" },
-      { key: "approvalStatus", label: "Approval Status" },
-    ],
-    filters: [
-      { key: "client", label: "Client" },
-      { key: "project", label: "Project" },
-      { key: "mode", label: "Mode" },
-      { key: "collectedBy", label: "Collected By" },
-      { key: "approvalStatus", label: "Approval Status" },
-    ],
-  },
-  {
-    key: "vendors",
-    label: "Vendors",
-    title: "Vendor Report",
-    description: "Every vendor record with material type, phone, address, GST, and purchase history.",
-    columns: [
-      { key: "vendorId", label: "Vendor ID" },
-      { key: "vendorName", label: "Vendor Name" },
-      { key: "materialType", label: "Material Type" },
-      { key: "materialsBought", label: "Materials Bought" },
-      { key: "phoneNumber", label: "Phone Number" },
-      { key: "address", label: "Address" },
-      { key: "gstNumber", label: "GST Number" },
-    ],
-    filters: [
-      { key: "materialType", label: "Material Type" },
-      { key: "vendorName", label: "Vendor" },
-    ],
-  },
-  {
-    key: "supervisors",
-    label: "Supervisors",
-    title: "Supervisor Master List",
-    description: "Company supervisor records with assignment, cash limits, advances, approval authority, and status.",
-    columns: [
-      { key: "supervisorId", label: "Supervisor ID" },
-      { key: "supervisorName", label: "Supervisor Name" },
-      { key: "phoneNumber", label: "Phone Number" },
-      { key: "role", label: "Role" },
-      { key: "assignedProject", label: "Assigned Project" },
-      { key: "assignedSite", label: "Assigned Site" },
-      { key: "cashLimit", label: "Cash Limit" },
-      { key: "activeAdvances", label: "Active Advances" },
-      { key: "approvalAuthority", label: "Approval Authority" },
-      { key: "status", label: "Status" },
-    ],
-    filters: [
-      { key: "role", label: "Role" },
-      { key: "assignedProject", label: "Project" },
-      { key: "assignedSite", label: "Site" },
-      { key: "status", label: "Status" },
-    ],
-  },
-  {
-    key: "subcontractors",
-    label: "Subcontracts",
-    title: "Subcontractor Register",
-    description: "Subcontractor work packages with contract value, advances, balance, supervisor, and payment status.",
-    columns: [
-      { key: "subcontractId", label: "Subcontract ID" },
-      { key: "client", label: "Client" },
-      { key: "project", label: "Project" },
-      { key: "site", label: "Site" },
-      { key: "subcontractorName", label: "Subcontractor Name" },
-      { key: "workPackage", label: "Work Package" },
-      { key: "contractValue", label: "Contract Value" },
-      { key: "advancePaid", label: "Advance Paid" },
-      { key: "balance", label: "Balance" },
-      { key: "startDate", label: "Start Date" },
-      { key: "dueDate", label: "Due Date" },
-      { key: "supervisor", label: "Supervisor" },
-      { key: "approvalStatus", label: "Approval Status" },
-      { key: "paymentStatus", label: "Payment Status" },
-    ],
-    filters: [
-      { key: "client", label: "Client" },
-      { key: "project", label: "Project" },
-      { key: "site", label: "Site" },
-      { key: "supervisor", label: "Supervisor" },
-      { key: "paymentStatus", label: "Payment Status" },
-      { key: "approvalStatus", label: "Approval Status" },
-    ],
-  },
-  {
-    key: "reports",
-    label: "Reports",
-    title: "Universal Report Register",
-    description: "Financial, labour, material, vendor, and project reports ready for Excel export.",
-    columns: [
-      { key: "category", label: "Category" },
-      { key: "reportName", label: "Report Name" },
-      { key: "scope", label: "Scope" },
-      { key: "owner", label: "Owner" },
-      { key: "exportFormat", label: "Export Format" },
-      { key: "status", label: "Status" },
-    ],
-    filters: [
-      { key: "category", label: "Category" },
-      { key: "owner", label: "Owner" },
-      { key: "status", label: "Status" },
-    ],
-  },
-];
 
 @Component({
   standalone: true,
-  imports: [CommonModule, IonContent, IonIcon, IonSplitPane, EnterpriseHeaderComponent, EnterpriseSidebarComponent],
+  imports: [CommonModule, IonContent, IonIcon],
   template: `
-    <ion-split-pane contentId="main-content" when="lg">
-      <agb-enterprise-sidebar active="dashboard"></agb-enterprise-sidebar>
+    <div class="ion-page erp-shell-host">
+      <ion-content class="erp-shell-page">
+        <main class="erp-split-shell">
+        <aside class="erp-side-nav" aria-label="ERP navigation">
+          <div class="brand-panel">
+            <img src="assets/logo.png" alt="Annai Builders" />
+            <div>
+              <span>Annai Builders</span>
+              <strong>ERP Control</strong>
+            </div>
+          </div>
 
-      <div class="ion-page" id="main-content">
-        <agb-enterprise-header
-          title="Dashboard"
-          eyebrow="Universal Records"
-          metaLabel=""
-          [blurred]="recordDialogOpen() || fieldDialogOpen() || labourTypeDialogOpen()"
-          [showTitle]="false"
-          role="Admin"
-          searchPlaceholder="Search universal dashboard..."
-        />
+          <div class="side-section-label">Main Modules</div>
+          <nav>
+            <button *ngFor="let item of navItems" type="button" [class.active]="activeNav() === item.key" (click)="selectNav(item.key)">
+              <span class="nav-icon-badge" [class.logo-badge]="item.logo"><ion-icon [name]="item.icon"></ion-icon></span>
+              <span>{{ item.label }}</span>
+              <small>{{ navCount(item.key) }}</small>
+            </button>
+          </nav>
 
-        <ion-content class="erp-page">
-          <main class="workspace-shell">
-            <section class="dashboard-command-strip dashboard-command-center">
-              <div class="dashboard-command-copy">
-                <h1>Dashboard</h1>
+        </aside>
+
+        <section class="erp-detail-panel">
+          <header class="erp-detail-header">
+            <div>
+              <span>{{ activeEyebrow() }}</span>
+              <h1>{{ activeTitle() }}</h1>
+              <p>{{ activeDescription() }}</p>
+            </div>
+            <div class="admin-toolbar" aria-label="Admin workspace tools">
+              <button *ngIf="activeAddModule()" type="button" class="icon-action add-action" (click)="openAddForm()">
+                <ion-icon name="add-outline"></ion-icon>
+                <span>Add</span>
+              </button>
+              <div class="admin-user-chip" aria-label="Current role">
+                <span>Admin</span>
+                <strong>Full Access</strong>
               </div>
-              <div class="dashboard-kpi-strip dashboard-kpi-board">
-                <div><span>Active Projects</span><strong>{{ activeProjectsCount() }}</strong></div>
-                <div><span>Projects On Hold</span><strong>{{ projectsOnHoldCount() }}</strong></div>
-                <div><span>Pending Approval</span><strong>{{ pendingApprovalCount() }}</strong></div>
-                <div><span>Active Clients</span><strong>{{ data.activeClients() }}</strong></div>
+              <label class="erp-search">
+                <ion-icon name="search-outline"></ion-icon>
+                <span class="sr-only">Search selected ERP records</span>
+                <input [value]="searchText()" (input)="searchText.set($any($event.target).value)" placeholder="Search selected records" />
+              </label>
+              <label class="erp-filter">
+                <span class="sr-only">Filter selected ERP records</span>
+                <select [value]="statusFilter()" (change)="setStatusFilter($any($event.target).value)">
+                  <option value="all">All records</option>
+                  <option value="active">Active</option>
+                  <option value="approved">Approved</option>
+                  <option value="pending">Pending</option>
+                  <option value="completed">Completed</option>
+                  <option value="on hold">On Hold</option>
+                  <option value="part paid">Part Paid</option>
+                  <option value="paid">Paid</option>
+                  <option value="not started">Not Started</option>
+                  <option value="within balance">Within Balance</option>
+                  <option value="low balance">Low Balance</option>
+                  <option value="overspent">Overspent</option>
+                </select>
+              </label>
+              <label *ngIf="activeNav() === 'labours' || activeClientSection() === 'labours'" class="erp-filter">
+                <span class="sr-only">Filter labour category</span>
+                <select [value]="labourCategoryFilter()" (change)="setLabourCategoryFilter($any($event.target).value)">
+                  <option value="all">All Labour</option>
+                  <option *ngFor="let category of labourCategories()" [value]="category.toLowerCase()">{{ category }}</option>
+                </select>
+              </label>
+            </div>
+          </header>
+
+          <section *ngIf="!(activeNav() === 'clients' && selectedClient())" class="module-overview" aria-label="Current module summary">
+            <div *ngFor="let item of summaryStats()">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </div>
+          </section>
+
+          <ng-container [ngSwitch]="activeNav()">
+            <section *ngSwitchCase="'dashboard'" class="module-stack">
+              <div class="metric-grid">
+                <article><ion-icon name="briefcase-outline"></ion-icon><span>Total Project Value</span><strong>{{ formatMoney(totalProjectValue()) }}</strong><small>{{ data.projects().length }} projects</small></article>
+                <article><ion-icon name="card-outline"></ion-icon><span>Payments Received</span><strong>{{ formatMoney(totalReceived()) }}</strong><small>{{ collectionRate() }} collected</small></article>
+                <article><ion-icon name="trending-up-outline"></ion-icon><span>Pending Balance</span><strong>{{ formatMoney(totalPending()) }}</strong><small>Across active clients</small></article>
+                <article><ion-icon name="receipt-outline"></ion-icon><span>Site Expenses</span><strong>{{ formatMoney(totalSiteExpense()) }}</strong><small>{{ siteExpenseGroups().length }} site ledgers</small></article>
               </div>
-            </section>
 
-            <section class="operations-workbench universal-workbench">
-              <nav class="operations-tabs" aria-label="Universal dashboard modules">
-                <button
-                  *ngFor="let module of modules"
-                  type="button"
-                  [class.active]="activeModule() === module.key"
-                  (click)="switchModule(module.key)"
-                >
-                  <span>{{ module.label }}</span>
-                  <small>{{ rowCountFor(module.key) }}</small>
-                </button>
-              </nav>
-
-              <div class="module-toolbar table-first-toolbar">
-                <div>
-                  <h2>{{ activeConfig().title }}</h2>
-                  <p>{{ activeConfig().description }}</p>
-                </div>
-                <div class="table-actions">
-                  <label class="table-search">
-                    <ion-icon name="search-outline"></ion-icon>
-                    <input [value]="searchText()" (input)="searchText.set($any($event.target).value)" placeholder="Search rows" />
-                  </label>
-                  <button type="button" class="primary-table-action add-row-action" title="Add row" aria-label="Add row" (click)="addInlineRow()">
-                    <ion-icon name="add-outline"></ion-icon>
-                    Add Row
-                  </button>
-                  <button type="button" (click)="openFieldDialog()">Add Field</button>
-                  <button type="button" (click)="exportPdf()"><ion-icon name="document-text-outline"></ion-icon>PDF Report</button>
-                  <button type="button" (click)="exportExcel()"><ion-icon name="download-outline"></ion-icon>Export Excel</button>
-                </div>
-              </div>
-
-              <div class="universal-filter-bar">
-                <label *ngFor="let filter of activeConfig().filters" class="filter-select-shell">
-                  <span>{{ filter.label }}</span>
-                  <div class="erp-select-menu filter-select-menu" [class.open]="isFilterMenuOpen(filter.key)">
-                    <button type="button" class="erp-select-trigger" (click)="toggleFilterMenu(filter.key)">
-                      <span>{{ selectedFilters()[filter.key] || 'All' }}</span>
-                      <svg viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
-                        <path d="M5.5 7.5 10 12l4.5-4.5" />
-                      </svg>
+              <div class="dashboard-grid">
+                <article class="wide-card">
+                  <div class="section-title"><h2>Active Projects</h2><span>{{ activeProjects().length }} running</span></div>
+                  <div class="project-list">
+                    <button *ngFor="let project of activeProjects()" type="button" (click)="openProject(project)">
+                      <div>
+                        <strong>{{ project.name }}</strong>
+                        <span>{{ project.client }} / {{ project.sites.length }} sites / Started {{ project.startDate }}</span>
+                      </div>
+                      <small>{{ project.completion }}%</small>
                     </button>
-                    <div class="erp-select-panel" *ngIf="isFilterMenuOpen(filter.key)">
-                      <button type="button" [class.selected]="!selectedFilters()[filter.key]" (click)="setFilter(filter.key, '')">All</button>
-                      <button
-                        *ngFor="let value of filterValues(filter.key)"
-                        type="button"
-                        [class.selected]="selectedFilters()[filter.key] === value"
-                        (click)="setFilter(filter.key, value)"
-                      >
-                        {{ value }}
-                      </button>
-                    </div>
                   </div>
-                </label>
-                <button type="button" (click)="clearFilters()">Clear filters</button>
+                </article>
+                <article>
+                  <div class="section-title"><h2>Approvals</h2><span>Quick view</span></div>
+                  <dl class="compact-ledger">
+                    <div><dt>Pending Materials</dt><dd>{{ pendingMaterials() }}</dd></div>
+                    <div><dt>Pending Labour</dt><dd>{{ pendingLabour() }}</dd></div>
+                    <div><dt>Pending Expenses</dt><dd>{{ pendingExpenses() }}</dd></div>
+                  </dl>
+                </article>
+                <article class="daily-summary-card">
+                  <div class="section-title"><h2>Daily Summary</h2><span>{{ todayLabel }}</span></div>
+                  <dl class="compact-ledger">
+                    <div><dt>Material Requests</dt><dd>{{ dailyMaterialRequests() }}</dd></div>
+                    <div><dt>Payments</dt><dd>{{ formatMoney(dailyPaymentTotal()) }}</dd></div>
+                    <div><dt>Labour Present</dt><dd>{{ dailyLabourPresent() }}</dd></div>
+                    <div><dt>Site Expenses</dt><dd>{{ formatMoney(dailyExpenseTotal()) }}</dd></div>
+                    <div><dt>Pending Actions</dt><dd>{{ pendingMaterials() + pendingLabour() + pendingExpenses() }}</dd></div>
+                  </dl>
+                </article>
               </div>
+            </section>
 
-              <div class="expense-ledger-summary universal-expense-summary" *ngIf="activeModule() === 'expenses' && expenseFilterBalanceVisible()">
-                <div><span>Project</span><strong>{{ selectedFilters()['project'] }}</strong></div>
-                <div><span>Site</span><strong>{{ selectedFilters()['site'] }}</strong></div>
-                <div><span>Opening Balance</span><strong>{{ expenseFilterOpeningLabel() }}</strong></div>
-                <div><span>Current Balance</span><strong>{{ expenseFilterCurrentLabel() }}</strong></div>
-              </div>
-
-              <div class="table-meta-strip">
-                <span>{{ visibleRows().length }} rows</span>
-                <span>{{ columnsForActive().length }} fields</span>
-                <span>{{ selectedFilterCount() }} active filters</span>
-                <span *ngIf="activeModule() === 'clients'">Customer records synced</span>
-                <span *ngIf="activeModule() === 'expenses'">Balances grouped by Project + Site</span>
-                <button type="button" class="meta-reset-action" *ngIf="hiddenFieldCount(activeModule())" (click)="resetFields(activeModule())">
-                  Reset fields
-                </button>
-              </div>
-
-              <div class="table-wrap operations-table universal-table">
-                <table>
-                  <thead>
-                    <tr>
-                      <th *ngFor="let column of columnsForActive()">
-                        <span class="column-head-inner">
-                          <span>{{ column.label }}</span>
-                          <button type="button" class="column-hide-action" aria-label="Hide column" title="Hide column" (click)="hideField(activeModule(), column.key, $event)">
-                            <svg viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
-                              <path d="m5.5 5.5 9 9" />
-                              <path d="m14.5 5.5-9 9" />
-                            </svg>
-                          </button>
-                        </span>
-                      </th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr *ngFor="let row of visibleRows()">
-                      <td
-                        *ngFor="let column of columnsForActive()"
-                        [class.readonly-cell]="isReadonlyColumn(column.key)"
-                        [class.select-cell]="selectOptions(activeModule(), column.key).length > 0"
-                        [class.labour-types-cell-host]="activeModule() === 'labour' && column.key === 'labourTypes'"
-                        spellcheck="false"
-                      >
-                        <ng-container *ngIf="activeModule() === 'labour' && column.key === 'labourTypes'; else standardDashboardCell">
-                          <div class="labour-types-cell">
-                            <div class="labour-type-chip-row" *ngIf="labourTypeCards(row).length; else emptyUniversalLabourTypes">
-                              <span class="labour-type-chip" *ngFor="let type of labourTypeCards(row)">
-                                <span>{{ type.type }}</span>
-                                <strong>{{ type.count }}</strong>
-                                <button type="button" aria-label="Remove labor type" title="Remove labor type" (click)="removeLabourType(row, type.type)">
-                                  <svg viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
-                                    <path d="m5.5 5.5 9 9" />
-                                    <path d="m14.5 5.5-9 9" />
-                                  </svg>
-                                </button>
-                              </span>
-                            </div>
-                            <ng-template #emptyUniversalLabourTypes>
-                              <span class="labour-type-empty">No labor types</span>
-                            </ng-template>
-                            <button type="button" class="labour-type-add" (click)="openLabourTypeDialog(row)">
-                              <svg viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
-                                <path d="M10 4v12" />
-                                <path d="M4 10h12" />
-                              </svg>
-                              Add labor type
-                            </button>
-                          </div>
-                        </ng-container>
-                        <ng-template #standardDashboardCell>
-                          <div
-                            *ngIf="selectOptions(activeModule(), column.key).length > 0; else editableDashboardCell"
-                            class="erp-select-menu"
-                            [class.open]="isSelectMenuOpen(row, column.key)"
-                          >
-                            <button type="button" class="erp-select-trigger" (click)="toggleSelectMenu(row, column.key)">
-                              <span>{{ row[column.key] || 'Select' }}</span>
-                              <svg viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
-                                <path d="M5.5 7.5 10 12l4.5-4.5" />
-                              </svg>
-                            </button>
-                            <div class="erp-select-panel" *ngIf="isSelectMenuOpen(row, column.key)">
-                              <button
-                                *ngFor="let option of selectOptions(activeModule(), column.key)"
-                                type="button"
-                                [class.selected]="option === row[column.key]"
-                                (click)="selectCellOptionForRow(row, column.key, option)"
-                              >
-                                <span
-                                  class="select-option-icon"
-                                  *ngIf="selectOptionIcon(option) as icon"
-                                  [class.approve]="icon === 'approve'"
-                                  [class.decline]="icon === 'decline'"
-                                >
-                                  <svg *ngIf="icon === 'approve'" viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
-                                    <path d="m4.5 10.5 3.5 3.5 7.5-8" />
-                                  </svg>
-                                  <svg *ngIf="icon === 'decline'" viewBox="0 0 20 20" aria-hidden="true" class="svg-icon">
-                                    <path d="m5.5 5.5 9 9" />
-                                    <path d="m14.5 5.5-9 9" />
-                                  </svg>
-                                </span>
-                                {{ option }}
-                              </button>
-                              <label class="custom-select-entry" *ngIf="allowsCustomOption(activeModule(), column.key)">
-                                <span>Custom</span>
-                                <input
-                                  #dashboardCustomValue
-                                  (keydown.enter)="saveCustomSelectOptionForRow(row, column.key, dashboardCustomValue.value, $event)"
-                                  placeholder="Type value and press Enter"
-                                />
-                              </label>
-                            </div>
-                          </div>
-                          <ng-template #editableDashboardCell>
-                            <span
-                              class="editable-cell"
-                              [attr.contenteditable]="isReadonlyColumn(column.key) ? null : 'true'"
-                              spellcheck="false"
-                              (blur)="!isReadonlyColumn(column.key) && updateRowCell(row, column.key, $any($event.target).textContent || '')"
-                            >
-                              {{ row[column.key] }}
-                            </span>
-                          </ng-template>
-                        </ng-template>
-                      </td>
-                      <td class="row-actions">
-                        <button type="button" class="icon-row-action danger" aria-label="Delete row" title="Delete row" (click)="deleteRow(row)">
-                          <svg viewBox="0 0 24 24" aria-hidden="true" class="svg-icon">
-                            <path d="M4 7h16" />
-                            <path d="M10 11v6" />
-                            <path d="M14 11v6" />
-                            <path d="M6 7l1 14h10l1-14" />
-                            <path d="M9 7V4h6v3" />
-                          </svg>
+            <section *ngSwitchCase="'clients'" class="module-stack">
+              <ng-container *ngIf="selectedClient() as client; else clientCards">
+                <article class="detail-card focused-detail-card" [class.site-workspace-page]="activeClientSite(client)">
+                  <ng-container *ngIf="activeClientSite(client) as activeSite; else clientOverview">
+                    <div class="section-title site-workspace-title">
+                      <div>
+                        <button type="button" class="back-action" (click)="activeClientSiteKey.set(null); activeClientSection.set(null)">
+                          <ion-icon name="arrow-back-outline"></ion-icon>
+                          Sites
                         </button>
-                      </td>
-                    </tr>
-                    <tr *ngIf="visibleRows().length === 0">
-                      <td class="empty-row" [attr.colspan]="columnsForActive().length + 1">
-                        <div class="empty-record-state icon-only" aria-label="No records in this table">
-                          <span class="empty-box-icon" aria-hidden="true">
-                            <svg viewBox="0 0 226.512 226.512" aria-hidden="true">
-                              <path class="empty-box-fill" d="M186.268 9.011H38.929c-6.005 0-13.189 4.536-16.116 10.128L3.009 65.958C.822 71.549-.461 80.932.153 86.909l12.287 119.774c.609 5.978 5.983 10.818 11.988 10.818h177.672c6.005 0 11.379-4.846 11.988-10.818l12.287-119.774c.609-5.978-.87-15.273-3.312-20.755l-21.414-47.238c-2.491-5.472-8.377-9.905-14.381-9.905Z" />
-                              <path class="empty-box-line" d="M28.834 68.514l6.88-20.201c1.936-5.684 8.376-10.296 14.386-10.296h122.896c6.005 0 12.863 4.444 15.311 9.932l9.361 20.935c2.448 5.488-.435 9.932-6.445 9.932H36.209c-6.01 0-9.311-4.612-7.375-10.302Z" />
-                              <path class="empty-box-line" d="M78.362 102.383h69.799c6.005 0 10.878 4.873 10.878 10.878v24.476c0 6.005-4.873 10.878-10.878 10.878H78.362c-6.005 0-10.878-4.873-10.878-10.878v-24.476c0-6.005 4.873-10.878 10.878-10.878Z" />
-                            </svg>
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+                        <h2>{{ activeSite.site }}</h2>
+                        <p>{{ client.name }} / {{ activeSite.projectName }} / Started {{ activeSite.startDate }}</p>
+                      </div>
+                      <span class="status-pill" [ngClass]="statusClass(activeSite.status)">{{ activeSite.status }} / {{ activeSite.completion }}%</span>
+                    </div>
+
+                    <nav class="client-upper-nav independent-nav" aria-label="Site detail sections">
+                      <div class="nav-title">
+                        <span>Site Modules</span>
+                        <strong>{{ activeSite.site }}</strong>
+                      </div>
+                      <button
+                        *ngFor="let section of clientSections"
+                        type="button"
+                        [class.active]="activeClientSection() === section.key"
+                        (click)="activeClientSection.set(section.key)"
+                      >
+                        <ion-icon [name]="section.icon"></ion-icon>
+                        <span>{{ section.label }}</span>
+                        <ion-icon class="chevron" name="chevron-down-outline"></ion-icon>
+                      </button>
+                    </nav>
+
+                    <div class="detail-metrics site-metrics">
+                      <div><span>Materials</span><strong>{{ materialsForClientSite(client).length }}</strong></div>
+                      <div><span>Labour Present</span><strong>{{ siteLabourPresent(client) }}</strong></div>
+                      <div><span>Site Expense</span><strong>{{ formatMoney(siteExpenseTotal(client)) }}</strong></div>
+                      <div><span>Vendors</span><strong>{{ vendorsForClientSite(client).length }}</strong></div>
+                    </div>
+
+                    <ng-container *ngIf="activeClientSection()" [ngSwitch]="activeClientSection()">
+                      <section *ngSwitchCase="'materials'" class="module-detail-zone">
+                      <div class="section-title compact"><h2>Site Materials</h2><span>{{ filteredMaterialsForClientSite(client).length }} records</span></div>
+                      <div class="insight-card-grid">
+                        <article *ngFor="let material of filteredMaterialsForClientSite(client)" class="insight-card">
+                          <div class="card-top"><ion-icon name="cube-outline"></ion-icon><span>{{ material.status }}</span></div>
+                          <h3>{{ material.name }}</h3>
+                          <p>{{ projectName(material.projectId) }} / {{ material.site }}</p>
+                          <dl>
+                            <div><dt>Requested</dt><dd>{{ formatNumber(material.requested) }} {{ material.unit }}</dd></div>
+                            <div><dt>Purchased</dt><dd>{{ formatNumber(material.purchased) }} {{ material.unit }}</dd></div>
+                            <div><dt>Used</dt><dd>{{ formatNumber(material.consumed) }} {{ material.unit }}</dd></div>
+                            <div><dt>Remaining</dt><dd>{{ formatNumber(material.purchased - material.consumed) }} {{ material.unit }}</dd></div>
+                            <div><dt>Needed</dt><dd>{{ formatNumber(materialNeeded(material)) }} {{ material.unit }}</dd></div>
+                            <div><dt>Purchased From</dt><dd>{{ material.vendor }}</dd></div>
+                            <div><dt>PO</dt><dd>{{ material.poNumber }}</dd></div>
+                          </dl>
+                        </article>
+                      </div>
+                      </section>
+
+                      <section *ngSwitchCase="'labours'" class="module-detail-zone">
+                      <div class="section-title compact"><h2>Site Labours</h2><span>{{ filteredLabourForClientSite(client).length }} records</span></div>
+                      <div class="insight-card-grid">
+                        <article *ngFor="let row of filteredLabourForClientSite(client)" class="insight-card">
+                          <div class="card-top"><ion-icon name="people-outline"></ion-icon><span>{{ row.status }}</span></div>
+                          <h3>{{ row.party }}</h3>
+                          <p>{{ projectName(row.projectId) }} / {{ row.site }}</p>
+                          <dl>
+                            <div><dt>Category</dt><dd>{{ row.category }}</dd></div>
+                            <div><dt>Present Count</dt><dd>{{ row.presentCount }}</dd></div>
+                            <div><dt>Present Days</dt><dd>{{ row.presentDays }}</dd></div>
+                            <div><dt>Absent Days</dt><dd>{{ row.absentDays }}</dd></div>
+                            <div><dt>Daily Wage</dt><dd>{{ formatMoney(row.dailyWage) }}</dd></div>
+                            <div><dt>Weekly Pay</dt><dd>{{ formatMoney(labourWeeklyPay(row)) }}</dd></div>
+                            <div><dt>Mode</dt><dd>{{ row.paymentMode }}</dd></div>
+                          </dl>
+                        </article>
+                      </div>
+                      </section>
+
+                      <section *ngSwitchCase="'vendors'" class="module-detail-zone">
+                      <div class="section-title compact"><h2>Site Vendors and Supply</h2><span>{{ filteredVendorsForClientSite(client).length }} vendors</span></div>
+                      <div class="insight-card-grid">
+                        <article *ngFor="let vendor of filteredVendorsForClientSite(client)" class="insight-card">
+                          <div class="card-top"><ion-icon name="business-outline"></ion-icon><span>{{ vendor.materialType }}</span></div>
+                          <h3>{{ vendor.name }}</h3>
+                          <p>{{ vendor.phone }} / {{ vendor.address }}</p>
+                          <dl>
+                            <div><dt>GST</dt><dd>{{ vendor.gst }}</dd></div>
+                            <div><dt>Supply Rows</dt><dd>{{ materialsForClientSiteVendor(client, vendor).length }}</dd></div>
+                            <div><dt>Purchased</dt><dd>{{ clientSiteVendorPurchasedUnits(client, vendor) }}</dd></div>
+                            <div><dt>Materials</dt><dd>{{ clientSiteVendorMaterialNames(client, vendor) }}</dd></div>
+                          </dl>
+                        </article>
+                      </div>
+                      </section>
+
+                      <section *ngSwitchCase="'subcontract'" class="module-detail-zone">
+                      <div class="section-title compact"><h2>Site Subcontracts</h2><span>{{ filteredSubcontractorsForClientSite(client).length }} packages</span></div>
+                      <div class="insight-card-grid">
+                        <article *ngFor="let row of filteredSubcontractorsForClientSite(client)" class="insight-card">
+                          <div class="card-top"><ion-icon name="construct-outline"></ion-icon><span>{{ row.paymentStatus }}</span></div>
+                          <h3>{{ row.name }}</h3>
+                          <p>{{ projectName(row.projectId) }} / {{ row.site }}</p>
+                          <dl>
+                            <div><dt>Work</dt><dd>{{ row.workPackage }}</dd></div>
+                            <div><dt>Contract</dt><dd>{{ formatMoney(row.contractValue) }}</dd></div>
+                            <div><dt>Advance</dt><dd>{{ formatMoney(row.advancePaid) }}</dd></div>
+                            <div><dt>Remaining</dt><dd>{{ formatMoney(row.contractValue - row.advancePaid) }}</dd></div>
+                            <div><dt>Due</dt><dd>{{ row.dueDate }}</dd></div>
+                          </dl>
+                        </article>
+                      </div>
+                      </section>
+
+                      <section *ngSwitchCase="'supervisors'" class="module-detail-zone">
+                      <div class="section-title compact"><h2>Site Supervisors</h2><span>{{ filteredSupervisorsForClientSite(client).length }} assigned</span></div>
+                      <div class="insight-card-grid">
+                        <article *ngFor="let supervisor of filteredSupervisorsForClientSite(client)" class="insight-card">
+                          <div class="card-top"><ion-icon name="id-card-outline"></ion-icon><span>{{ supervisor.status }}</span></div>
+                          <h3>{{ supervisor.name }}</h3>
+                          <p>{{ supervisor.role }}</p>
+                          <dl>
+                            <div><dt>Phone</dt><dd>{{ supervisor.phone }}</dd></div>
+                            <div><dt>Project</dt><dd>{{ supervisor.assignedProject }}</dd></div>
+                            <div><dt>Site</dt><dd>{{ supervisor.assignedSite }}</dd></div>
+                            <div><dt>Cash Limit</dt><dd>{{ formatMoney(supervisor.cashLimit) }}</dd></div>
+                            <div><dt>Available</dt><dd>{{ formatMoney(supervisor.cashLimit - supervisor.activeAdvances) }}</dd></div>
+                            <div><dt>Authority</dt><dd>{{ supervisor.approvalAuthority }}</dd></div>
+                          </dl>
+                        </article>
+                      </div>
+                      </section>
+
+                      <section *ngSwitchCase="'siteExpense'" class="module-detail-zone">
+                      <div class="section-title compact"><h2>Site Expenses</h2><span>{{ filteredSiteExpenseGroupsForClientSite(client).length }} site ledgers</span></div>
+                      <div class="insight-card-grid">
+                        <article *ngFor="let group of filteredSiteExpenseGroupsForClientSite(client)" class="insight-card">
+                          <div class="card-top"><ion-icon name="receipt-outline"></ion-icon><span>{{ group.rows.length }} entries</span></div>
+                          <h3>{{ group.site }}</h3>
+                          <p>{{ group.projectName }} / {{ group.supervisor }}</p>
+                          <dl>
+                            <div><dt>Received</dt><dd>{{ formatMoney(group.received) }}</dd></div>
+                            <div><dt>Spent</dt><dd>{{ formatMoney(group.spent) }}</dd></div>
+                            <div><dt>Remaining</dt><dd>{{ formatMoney(group.balance) }}</dd></div>
+                            <div><dt>Spend Ratio</dt><dd>{{ expenseSpendRatio(group) }}%</dd></div>
+                            <div><dt>Risk</dt><dd>{{ expenseRisk(group) }}</dd></div>
+                          </dl>
+                        </article>
+                      </div>
+                      </section>
+
+                      <section *ngSwitchCase="'reports'" class="module-detail-zone">
+                      <div class="section-title compact"><h2>Client Reports</h2><span>Export-ready view</span></div>
+                      <div class="table-wrap">
+                        <table>
+                          <thead><tr><th>Report</th><th>Scope</th><th>Key Detail</th><th>Owner</th><th>Status</th></tr></thead>
+                          <tbody>
+                            <tr *ngFor="let report of clientReports(client)">
+                              <td>{{ report.name }}</td>
+                              <td>{{ report.scope }}</td>
+                              <td>{{ report.detail }}</td>
+                              <td>{{ report.owner }}</td>
+                              <td>{{ report.status }}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                      </section>
+                    </ng-container>
+                  </ng-container>
+
+                  <ng-template #clientOverview>
+                    <div class="section-title">
+                      <div>
+                        <button type="button" class="back-action" (click)="selectedClient.set(null)">
+                          <ion-icon name="arrow-back-outline"></ion-icon>
+                          Clients
+                        </button>
+                        <h2>{{ client.name }}</h2>
+                        <p>{{ client.mobile }} / {{ client.address }}</p>
+                      </div>
+                      <span class="status-pill" [ngClass]="statusClass(client.status)">{{ client.status }}</span>
+                    </div>
+
+                    <div class="client-profile-strip">
+                      <div class="avatar large">{{ client.initials }}</div>
+                      <div><span>Assigned Supervisor</span><strong>{{ client.supervisor }}</strong></div>
+                      <div><span>Projects</span><strong>{{ clientSummary(client).projectCount }}</strong></div>
+                      <div><span>Active Sites</span><strong>{{ clientSummary(client).activeSites }}</strong></div>
+                      <div><span>First Started</span><strong>{{ firstStartDate(client) }}</strong></div>
+                    </div>
+
+                    <div class="detail-metrics">
+                      <div><span>Project Value</span><strong>{{ formatMoney(clientSummary(client).totalValue) }}</strong></div>
+                      <div><span>Received</span><strong>{{ formatMoney(clientSummary(client).received) }}</strong></div>
+                      <div><span>Pending</span><strong>{{ formatMoney(clientSummary(client).pending) }}</strong></div>
+                      <div><span>Labour Count</span><strong>{{ clientSummary(client).activeLabour }}</strong></div>
+                    </div>
+
+                    <section class="client-site-workspace">
+                      <div class="section-title compact">
+                        <h2>Active Sites</h2>
+                        <span>{{ sitesForClient(client).length }} site workspaces</span>
+                      </div>
+                      <div class="site-card-grid">
+                        <button
+                          *ngFor="let site of sitesForClient(client)"
+                          type="button"
+                          class="site-card"
+                          (click)="openClientSite(site)"
+                        >
+                          <span>{{ site.projectName }}</span>
+                          <strong>{{ site.site }}</strong>
+                          <small>{{ site.status }} / {{ site.completion }}% / Started {{ site.startDate }}</small>
+                        </button>
+                      </div>
+                    </section>
+                  </ng-template>
+                </article>
+              </ng-container>
+
+              <ng-template #clientCards>
+                <div class="card-grid">
+                  <article
+                    *ngFor="let client of filteredClients()"
+                    class="erp-card selectable"
+                    role="button"
+                    tabindex="0"
+                    [attr.aria-label]="'Open client details for ' + client.name"
+                    (click)="selectClient(client)"
+                    (keydown.enter)="selectClient(client)"
+                    (keydown.space)="selectClient(client)"
+                  >
+                    <div class="card-top">
+                      <div class="avatar">{{ client.initials }}</div>
+                      <button type="button" class="edit-card-btn" (click)="openEditForm('clients', client, $event)" aria-label="Edit client"><ion-icon name="create-outline"></ion-icon></button>
+                      <span class="status-pill" [ngClass]="statusClass(client.status)">{{ client.status }}</span>
+                    </div>
+                    <h2>{{ client.name }}</h2>
+                    <p>{{ client.address }}</p>
+                    <dl>
+                      <div><dt>Client ID</dt><dd>{{ client.id }}</dd></div>
+                      <div><dt>Sites</dt><dd>{{ clientSummary(client).activeSites }}</dd></div>
+                      <div><dt>Started</dt><dd>{{ firstStartDate(client) }}</dd></div>
+                      <div><dt>Supervisor</dt><dd>{{ client.supervisor }}</dd></div>
+                      <div><dt>Pending</dt><dd>{{ formatMoney(clientSummary(client).pending) }}</dd></div>
+                    </dl>
+                  </article>
+                </div>
+              </ng-template>
+            </section>
+
+            <section *ngSwitchCase="'materials'" class="module-stack">
+              <ng-container *ngIf="selectedMaterial() as material; else materialCards">
+                <article class="detail-card focused-detail-card">
+                  <div class="section-title">
+                    <div>
+                      <button type="button" class="back-action" (click)="selectedMaterial.set(null)">
+                        <ion-icon name="arrow-back-outline"></ion-icon>
+                        Materials
+                      </button>
+                      <h2>{{ material.name }}</h2>
+                      <p>{{ projectName(material.projectId) }} / {{ material.site }} / {{ material.vendor }}</p>
+                    </div>
+                    <span class="status-pill" [ngClass]="statusClass(material.status)">{{ material.status }}</span>
+                  </div>
+                  <div class="detail-metrics">
+                    <div><span>Total Requested</span><strong>{{ formatNumber(materialTotal(material, 'requested')) }} {{ material.unit }}</strong></div>
+                    <div><span>Total Purchased</span><strong>{{ formatNumber(materialTotal(material, 'purchased')) }} {{ material.unit }}</strong></div>
+                    <div><span>Total Used</span><strong>{{ formatNumber(materialTotal(material, 'consumed')) }} {{ material.unit }}</strong></div>
+                    <div><span>Total Needed</span><strong>{{ formatNumber(materialNeededTotal(material)) }} {{ material.unit }}</strong></div>
+                  </div>
+                  <section>
+                    <div class="section-title compact"><h2>Site-wise Material Position</h2><span>{{ materialRowsFor(material).length }} site records</span></div>
+                    <div class="insight-card-grid">
+                      <article *ngFor="let row of materialRowsFor(material)" class="insight-card">
+                        <div class="card-top"><ion-icon name="location-outline"></ion-icon><span>{{ row.status }}</span></div>
+                        <h3>{{ row.site }}</h3>
+                        <p>{{ projectName(row.projectId) }}</p>
+                        <dl>
+                          <div><dt>Requested</dt><dd>{{ formatNumber(row.requested) }} {{ row.unit }}</dd></div>
+                          <div><dt>Purchased</dt><dd>{{ formatNumber(row.purchased) }} {{ row.unit }}</dd></div>
+                          <div><dt>Used</dt><dd>{{ formatNumber(row.consumed) }} {{ row.unit }}</dd></div>
+                          <div><dt>Remaining</dt><dd>{{ formatNumber(row.purchased - row.consumed) }} {{ row.unit }}</dd></div>
+                          <div><dt>Needed</dt><dd>{{ formatNumber(materialNeeded(row)) }} {{ row.unit }}</dd></div>
+                          <div><dt>Vendor</dt><dd>{{ row.vendor }}</dd></div>
+                        </dl>
+                      </article>
+                    </div>
+                  </section>
+                  <div class="record-detail-grid">
+                    <section>
+                      <div class="section-title compact"><h2>Stock Movement</h2><span>{{ materialUtilization(material) }}% consumed</span></div>
+                      <dl class="compact-ledger">
+                        <div><dt>Material ID</dt><dd>{{ material.id }}</dd></div>
+                        <div><dt>Project ID</dt><dd>{{ material.projectId }}</dd></div>
+                        <div><dt>Site</dt><dd>{{ material.site }}</dd></div>
+                        <div><dt>Unit</dt><dd>{{ material.unit }}</dd></div>
+                        <div><dt>Consumed</dt><dd>{{ formatNumber(material.consumed) }} {{ material.unit }}</dd></div>
+                        <div><dt>Pending Purchase</dt><dd>{{ formatNumber(material.approved - material.purchased) }} {{ material.unit }}</dd></div>
+                      </dl>
+                    </section>
+                    <aside>
+                      <div class="section-title compact"><h2>Procurement</h2><span>Vendor and approval</span></div>
+                      <dl class="compact-ledger">
+                        <div><dt>Vendor</dt><dd>{{ material.vendor }}</dd></div>
+                        <div><dt>PO Number</dt><dd>{{ material.poNumber }}</dd></div>
+                        <div><dt>Approval Status</dt><dd>{{ material.status }}</dd></div>
+                        <div><dt>Stock Risk</dt><dd>{{ materialStockRisk(material) }}</dd></div>
+                      </dl>
+                    </aside>
+                  </div>
+                </article>
+              </ng-container>
+
+              <ng-template #materialCards>
+                <div class="card-grid">
+                  <article
+                    *ngFor="let material of filteredMaterials()"
+                    class="erp-card selectable"
+                    role="button"
+                    tabindex="0"
+                    [attr.aria-label]="'Open material details for ' + material.name"
+                    (click)="selectMaterial(material)"
+                    (keydown.enter)="selectMaterial(material)"
+                    (keydown.space)="selectMaterial(material)"
+                  >
+                    <div class="card-top"><ion-icon name="cube-outline"></ion-icon><button type="button" class="edit-card-btn" (click)="openEditForm('materials', material, $event)" aria-label="Edit material"><ion-icon name="create-outline"></ion-icon></button><span>{{ material.status }}</span></div>
+                    <h2>{{ material.name }}</h2>
+                    <p>{{ projectName(material.projectId) }} / {{ material.site }}</p>
+                    <dl>
+                      <div><dt>Project ID</dt><dd>{{ material.projectId }}</dd></div>
+                      <div><dt>Purchased</dt><dd>{{ formatNumber(material.purchased) }} {{ material.unit }}</dd></div>
+                      <div><dt>Consumed</dt><dd>{{ formatNumber(material.consumed) }} {{ material.unit }}</dd></div>
+                      <div><dt>Current Site Stock</dt><dd>{{ formatNumber(material.purchased - material.consumed) }} {{ material.unit }}</dd></div>
+                      <div><dt>Vendor</dt><dd>{{ material.vendor }}</dd></div>
+                    </dl>
+                  </article>
+                </div>
+              </ng-template>
+            </section>
+
+            <section *ngSwitchCase="'vendors'" class="module-stack">
+              <ng-container *ngIf="selectedVendor() as vendor; else vendorCards">
+                <article class="detail-card focused-detail-card">
+                  <div class="section-title">
+                    <div>
+                      <button type="button" class="back-action" (click)="selectedVendor.set(null)">
+                        <ion-icon name="arrow-back-outline"></ion-icon>
+                        Vendors
+                      </button>
+                      <h2>{{ vendor.name }}</h2>
+                      <p>{{ vendor.materialType }} supplier / {{ vendor.address }}</p>
+                    </div>
+                    <span>{{ vendor.id }}</span>
+                  </div>
+                  <div class="detail-metrics">
+                    <div><span>Supply Entries</span><strong>{{ materialsForVendor(vendor).length }}</strong></div>
+                    <div><span>Total Purchased</span><strong>{{ vendorPurchasedUnits(vendor) }}</strong></div>
+                    <div><span>GST Number</span><strong>{{ vendor.gst }}</strong></div>
+                    <div><span>Phone</span><strong>{{ vendor.phone }}</strong></div>
+                  </div>
+                  <section>
+                    <div class="section-title compact"><h2>Supplied Material by Site</h2><span>{{ materialsForVendor(vendor).length }} rows</span></div>
+                    <div class="insight-card-grid">
+                      <article *ngFor="let material of materialsForVendor(vendor)" class="insight-card">
+                        <div class="card-top"><ion-icon name="cube-outline"></ion-icon><span>{{ material.status }}</span></div>
+                        <h3>{{ material.name }}</h3>
+                        <p>{{ projectName(material.projectId) }} / {{ material.site }}</p>
+                        <dl>
+                          <div><dt>PO Number</dt><dd>{{ material.poNumber }}</dd></div>
+                          <div><dt>Purchased</dt><dd>{{ formatNumber(material.purchased) }} {{ material.unit }}</dd></div>
+                          <div><dt>Used</dt><dd>{{ formatNumber(material.consumed) }} {{ material.unit }}</dd></div>
+                          <div><dt>Remaining</dt><dd>{{ formatNumber(material.purchased - material.consumed) }} {{ material.unit }}</dd></div>
+                          <div><dt>Needed</dt><dd>{{ formatNumber(materialNeeded(material)) }} {{ material.unit }}</dd></div>
+                        </dl>
+                      </article>
+                    </div>
+                  </section>
+                  <div class="table-wrap">
+                    <table>
+                      <thead><tr><th>Material</th><th>Project</th><th>Site</th><th>PO</th><th>Purchased</th><th>Consumed</th><th>Remaining</th><th>Status</th></tr></thead>
+                      <tbody>
+                        <tr *ngFor="let material of materialsForVendor(vendor)">
+                          <td>{{ material.name }}</td>
+                          <td>{{ projectName(material.projectId) }}</td>
+                          <td>{{ material.site }}</td>
+                          <td>{{ material.poNumber }}</td>
+                          <td>{{ formatNumber(material.purchased) }} {{ material.unit }}</td>
+                          <td>{{ formatNumber(material.consumed) }} {{ material.unit }}</td>
+                          <td>{{ formatNumber(material.purchased - material.consumed) }} {{ material.unit }}</td>
+                          <td>{{ material.status }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </article>
+              </ng-container>
+
+              <ng-template #vendorCards>
+                <div class="card-grid">
+                  <article
+                    *ngFor="let vendor of filteredVendors()"
+                    class="erp-card selectable"
+                    role="button"
+                    tabindex="0"
+                    [attr.aria-label]="'Open supply details for vendor ' + vendor.name"
+                    (click)="selectVendor(vendor)"
+                    (keydown.enter)="selectVendor(vendor)"
+                    (keydown.space)="selectVendor(vendor)"
+                  >
+                    <div class="card-top"><ion-icon name="business-outline"></ion-icon><button type="button" class="edit-card-btn" (click)="openEditForm('vendors', vendor, $event)" aria-label="Edit vendor"><ion-icon name="create-outline"></ion-icon></button><span>{{ vendor.materialType }}</span></div>
+                    <h2>{{ vendor.name }}</h2>
+                    <p>{{ vendor.address }}</p>
+                    <dl>
+                      <div><dt>Vendor ID</dt><dd>{{ vendor.id }}</dd></div>
+                      <div><dt>Phone</dt><dd>{{ vendor.phone }}</dd></div>
+                      <div><dt>GST</dt><dd>{{ vendor.gst }}</dd></div>
+                      <div><dt>Supply Rows</dt><dd>{{ materialsForVendor(vendor).length }}</dd></div>
+                      <div><dt>Total Purchased</dt><dd>{{ vendorPurchasedUnits(vendor) }}</dd></div>
+                    </dl>
+                  </article>
+                </div>
+              </ng-template>
+            </section>
+
+            <section *ngSwitchCase="'subcontract'" class="module-stack">
+              <ng-container *ngIf="selectedSubcontractor() as row; else subcontractCards">
+                <article class="detail-card focused-detail-card">
+                  <div class="section-title">
+                    <div>
+                      <button type="button" class="back-action" (click)="selectedSubcontractor.set(null)">
+                        <ion-icon name="arrow-back-outline"></ion-icon>
+                        Subcontracts
+                      </button>
+                      <h2>{{ row.name }}</h2>
+                      <p>{{ row.workPackage }} / {{ projectName(row.projectId) }} / {{ row.site }}</p>
+                    </div>
+                    <span class="status-pill">{{ row.paymentStatus }}</span>
+                  </div>
+                  <div class="detail-metrics">
+                    <div><span>Contract Value</span><strong>{{ formatMoney(row.contractValue) }}</strong></div>
+                    <div><span>Advance Paid</span><strong>{{ formatMoney(row.advancePaid) }}</strong></div>
+                    <div><span>Balance</span><strong>{{ formatMoney(row.contractValue - row.advancePaid) }}</strong></div>
+                    <div><span>Approval</span><strong>{{ row.approvalStatus }}</strong></div>
+                  </div>
+                  <section>
+                    <div class="section-title compact"><h2>Related Subcontracts in This Project</h2><span>{{ subcontractorsForProject(row.projectId).length }} packages</span></div>
+                    <div class="insight-card-grid">
+                      <article *ngFor="let item of subcontractorsForProject(row.projectId)" class="insight-card">
+                        <div class="card-top"><ion-icon name="construct-outline"></ion-icon><span>{{ item.paymentStatus }}</span></div>
+                        <h3>{{ item.name }}</h3>
+                        <p>{{ item.site }} / {{ item.workPackage }}</p>
+                        <dl>
+                          <div><dt>Contract</dt><dd>{{ formatMoney(item.contractValue) }}</dd></div>
+                          <div><dt>Advance</dt><dd>{{ formatMoney(item.advancePaid) }}</dd></div>
+                          <div><dt>Remaining</dt><dd>{{ formatMoney(item.contractValue - item.advancePaid) }}</dd></div>
+                          <div><dt>Due</dt><dd>{{ item.dueDate }}</dd></div>
+                        </dl>
+                      </article>
+                    </div>
+                  </section>
+                  <div class="record-detail-grid">
+                    <section>
+                      <div class="section-title compact"><h2>Work Package</h2><span>{{ row.id }}</span></div>
+                      <dl class="compact-ledger">
+                        <div><dt>Project</dt><dd>{{ projectName(row.projectId) }}</dd></div>
+                        <div><dt>Site</dt><dd>{{ row.site }}</dd></div>
+                        <div><dt>Scope</dt><dd>{{ row.workPackage }}</dd></div>
+                        <div><dt>Supervisor</dt><dd>{{ row.supervisor }}</dd></div>
+                      </dl>
+                    </section>
+                    <aside>
+                      <div class="section-title compact"><h2>Schedule</h2><span>Timeline</span></div>
+                      <dl class="compact-ledger">
+                        <div><dt>Start Date</dt><dd>{{ row.startDate }}</dd></div>
+                        <div><dt>Due Date</dt><dd>{{ row.dueDate }}</dd></div>
+                        <div><dt>Payment Status</dt><dd>{{ row.paymentStatus }}</dd></div>
+                        <div><dt>Balance Share</dt><dd>{{ subcontractBalancePercent(row) }}%</dd></div>
+                      </dl>
+                    </aside>
+                  </div>
+                </article>
+              </ng-container>
+
+              <ng-template #subcontractCards>
+                <div class="card-grid">
+                  <article
+                    *ngFor="let row of filteredSubcontractors()"
+                    class="erp-card selectable"
+                    role="button"
+                    tabindex="0"
+                    [attr.aria-label]="'Open subcontract details for ' + row.name"
+                    (click)="selectSubcontractor(row)"
+                    (keydown.enter)="selectSubcontractor(row)"
+                    (keydown.space)="selectSubcontractor(row)"
+                  >
+                    <div class="card-top"><ion-icon name="construct-outline"></ion-icon><button type="button" class="edit-card-btn" (click)="openEditForm('subcontract', row, $event)" aria-label="Edit subcontract"><ion-icon name="create-outline"></ion-icon></button><span>{{ row.paymentStatus }}</span></div>
+                    <h2>{{ row.name }}</h2>
+                    <p>{{ row.workPackage }}</p>
+                    <dl>
+                      <div><dt>Subcontract ID</dt><dd>{{ row.id }}</dd></div>
+                      <div><dt>Project</dt><dd>{{ projectName(row.projectId) }}</dd></div>
+                      <div><dt>Site</dt><dd>{{ row.site }}</dd></div>
+                      <div><dt>Contract</dt><dd>{{ formatMoney(row.contractValue) }}</dd></div>
+                      <div><dt>Balance</dt><dd>{{ formatMoney(row.contractValue - row.advancePaid) }}</dd></div>
+                    </dl>
+                  </article>
+                </div>
+              </ng-template>
+            </section>
+
+            <section *ngSwitchCase="'labours'" class="module-stack">
+              <ng-container *ngIf="selectedLabour() as row; else labourCards">
+                <article class="detail-card focused-detail-card">
+                  <div class="section-title">
+                    <div>
+                      <button type="button" class="back-action" (click)="selectedLabour.set(null)">
+                        <ion-icon name="arrow-back-outline"></ion-icon>
+                        Labours
+                      </button>
+                      <h2>{{ row.party }}</h2>
+                      <p>{{ row.category }} / {{ projectName(row.projectId) }} / {{ row.site }}</p>
+                    </div>
+                    <span class="status-pill" [ngClass]="statusClass(row.status)">{{ row.status }}</span>
+                  </div>
+                  <div class="detail-metrics">
+                    <div><span>Weekly Pay</span><strong>{{ formatMoney(labourWeeklyPay(row)) }}</strong></div>
+                    <div><span>Present Count</span><strong>{{ row.presentCount }}</strong></div>
+                    <div><span>Present Days</span><strong>{{ row.presentDays }}</strong></div>
+                    <div><span>Payment Mode</span><strong>{{ row.paymentMode }}</strong></div>
+                  </div>
+                  <section>
+                    <div class="section-title compact"><h2>Labour Records for This Party</h2><span>{{ labourRowsForParty(row).length }} site rows</span></div>
+                    <div class="insight-card-grid">
+                      <article *ngFor="let item of labourRowsForParty(row)" class="insight-card">
+                        <div class="card-top"><ion-icon name="people-outline"></ion-icon><span>{{ item.status }}</span></div>
+                        <h3>{{ item.site }}</h3>
+                        <p>{{ projectName(item.projectId) }} / {{ item.category }}</p>
+                        <dl>
+                          <div><dt>Present Count</dt><dd>{{ item.presentCount }}</dd></div>
+                          <div><dt>Present Days</dt><dd>{{ item.presentDays }}</dd></div>
+                          <div><dt>Absent Days</dt><dd>{{ item.absentDays }}</dd></div>
+                          <div><dt>Overtime</dt><dd>{{ item.overtime }} hrs</dd></div>
+                          <div><dt>Weekly Pay</dt><dd>{{ formatMoney(labourWeeklyPay(item)) }}</dd></div>
+                        </dl>
+                      </article>
+                    </div>
+                  </section>
+                  <div class="record-detail-grid">
+                    <section>
+                      <div class="section-title compact"><h2>Attendance</h2><span>{{ row.id }}</span></div>
+                      <dl class="compact-ledger">
+                        <div><dt>Working Site</dt><dd>{{ row.site }}</dd></div>
+                        <div><dt>Date of Join</dt><dd>{{ projectStart(row.projectId) }}</dd></div>
+                        <div><dt>Shift</dt><dd>{{ row.shift }}</dd></div>
+                        <div><dt>Notes</dt><dd>{{ row.notes }}</dd></div>
+                      </dl>
+                    </section>
+                    <aside>
+                      <div class="section-title compact"><h2>Wage Calculation</h2><span>Current week</span></div>
+                      <dl class="compact-ledger">
+                        <div><dt>Daily Wage</dt><dd>{{ formatMoney(row.dailyWage) }}</dd></div>
+                        <div><dt>Overtime</dt><dd>{{ row.overtime }} hrs</dd></div>
+                        <div><dt>Late Fine</dt><dd>{{ formatMoney(row.lateFine) }}</dd></div>
+                        <div><dt>Absent Days</dt><dd>{{ row.absentDays }}</dd></div>
+                      </dl>
+                    </aside>
+                  </div>
+                </article>
+              </ng-container>
+
+              <ng-template #labourCards>
+                <div class="card-grid">
+                  <article
+                    *ngFor="let row of filteredLabour()"
+                    class="erp-card selectable"
+                    role="button"
+                    tabindex="0"
+                    [attr.aria-label]="'Open labour details for ' + row.party"
+                    (click)="selectLabour(row)"
+                    (keydown.enter)="selectLabour(row)"
+                    (keydown.space)="selectLabour(row)"
+                  >
+                    <div class="card-top"><ion-icon name="people-outline"></ion-icon><button type="button" class="edit-card-btn" (click)="openEditForm('labours', row, $event)" aria-label="Edit labour"><ion-icon name="create-outline"></ion-icon></button><span>{{ row.status }}</span></div>
+                    <h2>{{ row.party }}</h2>
+                    <p>{{ row.category }} / {{ projectName(row.projectId) }}</p>
+                    <dl>
+                      <div><dt>Labour ID</dt><dd>{{ row.id }}</dd></div>
+                      <div><dt>Working Site</dt><dd>{{ row.site }}</dd></div>
+                      <div><dt>Date of Join</dt><dd>{{ projectStart(row.projectId) }}</dd></div>
+                      <div><dt>Present Count</dt><dd>{{ row.presentCount }}</dd></div>
+                      <div><dt>Weekly Pay</dt><dd>{{ formatMoney(labourWeeklyPay(row)) }}</dd></div>
+                    </dl>
+                  </article>
+                </div>
+              </ng-template>
+            </section>
+
+            <section *ngSwitchCase="'supervisors'" class="module-stack">
+              <ng-container *ngIf="selectedSupervisor() as supervisor; else supervisorCards">
+                <article class="detail-card focused-detail-card">
+                  <div class="section-title">
+                    <div>
+                      <button type="button" class="back-action" (click)="selectedSupervisor.set(null)">
+                        <ion-icon name="arrow-back-outline"></ion-icon>
+                        Supervisors
+                      </button>
+                      <h2>{{ supervisor.name }}</h2>
+                      <p>{{ supervisor.role }} / {{ supervisor.assignedProject }}</p>
+                    </div>
+                    <span class="status-pill" [ngClass]="statusClass(supervisor.status)">{{ supervisor.status }}</span>
+                  </div>
+                  <div class="detail-metrics">
+                    <div><span>Cash Limit</span><strong>{{ formatMoney(supervisor.cashLimit) }}</strong></div>
+                    <div><span>Active Advances</span><strong>{{ formatMoney(supervisor.activeAdvances) }}</strong></div>
+                    <div><span>Available Limit</span><strong>{{ formatMoney(supervisor.cashLimit - supervisor.activeAdvances) }}</strong></div>
+                    <div><span>Phone</span><strong>{{ supervisor.phone }}</strong></div>
+                  </div>
+                  <section>
+                    <div class="section-title compact"><h2>Projects Managed by Supervisor</h2><span>{{ projectsForSupervisor(supervisor).length }} projects</span></div>
+                    <div class="insight-card-grid">
+                      <article *ngFor="let project of projectsForSupervisor(supervisor)" class="insight-card">
+                        <div class="card-top"><ion-icon name="business-outline"></ion-icon><span>{{ project.status }}</span></div>
+                        <h3>{{ project.name }}</h3>
+                        <p>{{ project.client }} / {{ project.sites.join(', ') }}</p>
+                        <dl>
+                          <div><dt>Value</dt><dd>{{ formatMoney(project.totalValue) }}</dd></div>
+                          <div><dt>Received</dt><dd>{{ formatMoney(project.receivedAmount) }}</dd></div>
+                          <div><dt>Pending</dt><dd>{{ formatMoney(project.totalValue - project.receivedAmount) }}</dd></div>
+                          <div><dt>Completion</dt><dd>{{ project.completion }}%</dd></div>
+                        </dl>
+                      </article>
+                    </div>
+                  </section>
+                  <div class="record-detail-grid">
+                    <section>
+                      <div class="section-title compact"><h2>Assignment</h2><span>{{ supervisor.id }}</span></div>
+                      <dl class="compact-ledger">
+                        <div><dt>Assigned Project</dt><dd>{{ supervisor.assignedProject }}</dd></div>
+                        <div><dt>Assigned Site</dt><dd>{{ supervisor.assignedSite }}</dd></div>
+                        <div><dt>Role</dt><dd>{{ supervisor.role }}</dd></div>
+                        <div><dt>Status</dt><dd>{{ supervisor.status }}</dd></div>
+                      </dl>
+                    </section>
+                    <aside>
+                      <div class="section-title compact"><h2>Authority</h2><span>Controls</span></div>
+                      <dl class="compact-ledger">
+                        <div><dt>Approval Authority</dt><dd>{{ supervisor.approvalAuthority }}</dd></div>
+                        <div><dt>Cash Utilization</dt><dd>{{ supervisorCashUtilization(supervisor) }}%</dd></div>
+                        <div><dt>Ledger Risk</dt><dd>{{ supervisorCashRisk(supervisor) }}</dd></div>
+                      </dl>
+                    </aside>
+                  </div>
+                </article>
+              </ng-container>
+
+              <ng-template #supervisorCards>
+                <div class="card-grid">
+                  <article
+                    *ngFor="let supervisor of filteredSupervisors()"
+                    class="erp-card selectable"
+                    role="button"
+                    tabindex="0"
+                    [attr.aria-label]="'Open supervisor details for ' + supervisor.name"
+                    (click)="selectSupervisor(supervisor)"
+                    (keydown.enter)="selectSupervisor(supervisor)"
+                    (keydown.space)="selectSupervisor(supervisor)"
+                  >
+                    <div class="card-top"><ion-icon name="id-card-outline"></ion-icon><button type="button" class="edit-card-btn" (click)="openEditForm('supervisors', supervisor, $event)" aria-label="Edit supervisor"><ion-icon name="create-outline"></ion-icon></button><span>{{ supervisor.status }}</span></div>
+                    <h2>{{ supervisor.name }}</h2>
+                    <p>{{ supervisor.role }}</p>
+                    <dl>
+                      <div><dt>Supervisor ID</dt><dd>{{ supervisor.id }}</dd></div>
+                      <div><dt>Phone</dt><dd>{{ supervisor.phone }}</dd></div>
+                      <div><dt>Project</dt><dd>{{ supervisor.assignedProject }}</dd></div>
+                      <div><dt>Cash Limit</dt><dd>{{ formatMoney(supervisor.cashLimit) }}</dd></div>
+                      <div><dt>Active Advances</dt><dd>{{ formatMoney(supervisor.activeAdvances) }}</dd></div>
+                    </dl>
+                  </article>
+                </div>
+              </ng-template>
+            </section>
+
+            <section *ngSwitchCase="'expenses'" class="module-stack">
+              <div class="subfolder-tabs">
+                <button type="button" [class.active]="expenseMode() === 'site'" (click)="expenseMode.set('site')">Site Expense</button>
+                <button type="button" [class.active]="expenseMode() === 'general'" (click)="expenseMode.set('general')">General Expense</button>
+              </div>
+
+              <ng-container *ngIf="expenseMode() === 'site'; else generalExpenseBlock">
+                <ng-container *ngIf="selectedExpenseGroup() as group; else siteExpenseCards">
+                  <article class="detail-card focused-detail-card">
+                    <div class="section-title">
+                      <div>
+                        <button type="button" class="back-action" (click)="selectedExpenseGroup.set(null)">
+                          <ion-icon name="arrow-back-outline"></ion-icon>
+                          Site Expenses
+                        </button>
+                        <h2>{{ group.site }} Expense Details</h2>
+                        <p>{{ group.projectName }} / {{ group.supervisor }}</p>
+                      </div>
+                      <span>{{ group.rows.length }} entries</span>
+                    </div>
+                    <div class="detail-metrics">
+                      <div><span>Total Received</span><strong>{{ formatMoney(group.received) }}</strong></div>
+                      <div><span>Total Spent</span><strong>{{ formatMoney(group.spent) }}</strong></div>
+                      <div><span>Balance</span><strong>{{ formatMoney(group.balance) }}</strong></div>
+                      <div><span>Spend Ratio</span><strong>{{ expenseSpendRatio(group) }}%</strong></div>
+                    </div>
+                    <div class="expense-detail-grid">
+                      <div class="pie-card">
+                        <div class="expense-pie" [style.background]="pieBackground(group)"></div>
+                        <dl>
+                          <div><dt>Spent</dt><dd>{{ formatMoney(group.spent) }}</dd></div>
+                          <div><dt>Balance</dt><dd>{{ formatMoney(group.balance) }}</dd></div>
+                          <div><dt>Ledger Risk</dt><dd>{{ expenseRisk(group) }}</dd></div>
+                        </dl>
+                      </div>
+                      <div class="table-wrap">
+                        <table>
+                          <thead><tr><th>Date</th><th>Description</th><th>Spent</th><th>Received</th><th>Reference</th><th>Status</th></tr></thead>
+                          <tbody>
+                            <tr *ngFor="let row of group.rows">
+                              <td>{{ row.date }}</td>
+                              <td>{{ row.description }}</td>
+                              <td>{{ formatMoney(row.spent) }}</td>
+                              <td>{{ formatMoney(row.received) }}</td>
+                              <td>{{ row.reference }}</td>
+                              <td>{{ row.status }}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </article>
+                </ng-container>
+
+                <ng-template #siteExpenseCards>
+                  <div class="card-grid">
+                    <article
+                      *ngFor="let group of filteredSiteExpenseGroups()"
+                      class="erp-card selectable"
+                      role="button"
+                      tabindex="0"
+                      [attr.aria-label]="'Open site expense details for ' + group.projectName + ' ' + group.site"
+                      (click)="selectExpenseGroup(group)"
+                      (keydown.enter)="selectExpenseGroup(group)"
+                      (keydown.space)="selectExpenseGroup(group)"
+                    >
+                      <div class="card-top"><ion-icon name="receipt-outline"></ion-icon><button type="button" class="edit-card-btn" (click)="openEditExpenseGroup(group, $event)" aria-label="Edit site expense"><ion-icon name="create-outline"></ion-icon></button><span>{{ group.rows.length }} entries</span></div>
+                      <h2>{{ group.site }}</h2>
+                      <p>{{ group.projectName }} / {{ group.supervisor }}</p>
+                      <dl>
+                        <div><dt>Total Received</dt><dd>{{ formatMoney(group.received) }}</dd></div>
+                        <div><dt>Total Spent</dt><dd>{{ formatMoney(group.spent) }}</dd></div>
+                        <div><dt>Balance</dt><dd>{{ formatMoney(group.balance) }}</dd></div>
+                        <div><dt>Risk</dt><dd>{{ expenseRisk(group) }}</dd></div>
+                      </dl>
+                    </article>
+                  </div>
+                </ng-template>
+              </ng-container>
+
+              <ng-template #generalExpenseBlock>
+                <ng-container *ngIf="selectedGeneralExpense() as row; else generalExpenseCards">
+                  <article class="detail-card focused-detail-card">
+                    <div class="section-title">
+                      <div>
+                        <button type="button" class="back-action" (click)="selectedGeneralExpense.set(null)">
+                          <ion-icon name="arrow-back-outline"></ion-icon>
+                          General Expenses
+                        </button>
+                        <h2>{{ row.description }}</h2>
+                        <p>Head Office / {{ row.supervisor }}</p>
+                      </div>
+                      <span class="status-pill" [ngClass]="statusClass(row.status)">{{ row.status }}</span>
+                    </div>
+                    <div class="detail-metrics">
+                      <div><span>Date</span><strong>{{ row.date }}</strong></div>
+                      <div><span>Amount</span><strong>{{ formatMoney(row.spent) }}</strong></div>
+                      <div><span>Received</span><strong>{{ formatMoney(row.received) }}</strong></div>
+                      <div><span>Reference</span><strong>{{ row.reference }}</strong></div>
+                    </div>
+                    <dl class="compact-ledger detail-ledger">
+                      <div><dt>Expense ID</dt><dd>{{ row.id }}</dd></div>
+                      <div><dt>Expense Type</dt><dd>{{ row.type }}</dd></div>
+                      <div><dt>Approved Status</dt><dd>{{ row.status }}</dd></div>
+                      <div><dt>Net Impact</dt><dd>{{ formatMoney(row.received - row.spent) }}</dd></div>
+                    </dl>
+                  </article>
+                </ng-container>
+
+                <ng-template #generalExpenseCards>
+                  <div class="card-grid">
+                    <article
+                      *ngFor="let row of filteredGeneralExpenses()"
+                      class="erp-card selectable"
+                      role="button"
+                      tabindex="0"
+                      [attr.aria-label]="'Open general expense details for ' + row.description"
+                      (click)="selectGeneralExpense(row)"
+                      (keydown.enter)="selectGeneralExpense(row)"
+                      (keydown.space)="selectGeneralExpense(row)"
+                    >
+                      <div class="card-top"><ion-icon name="wallet-outline"></ion-icon><button type="button" class="edit-card-btn" (click)="openEditForm('expenses', row, $event)" aria-label="Edit expense"><ion-icon name="create-outline"></ion-icon></button><span>{{ row.status }}</span></div>
+                      <h2>{{ row.description }}</h2>
+                      <p>Head Office / {{ row.supervisor }}</p>
+                      <dl>
+                        <div><dt>Date</dt><dd>{{ row.date }}</dd></div>
+                        <div><dt>Amount</dt><dd>{{ formatMoney(row.spent) }}</dd></div>
+                        <div><dt>Reference</dt><dd>{{ row.reference }}</dd></div>
+                        <div><dt>Status</dt><dd>{{ row.status }}</dd></div>
+                      </dl>
+                    </article>
+                  </div>
+                </ng-template>
+              </ng-template>
+            </section>
+
+            <section *ngSwitchCase="'payments'" class="module-stack">
+              <ng-container *ngIf="selectedPayment() as payment; else paymentCards">
+                <article class="detail-card focused-detail-card">
+                  <div class="section-title">
+                    <div>
+                      <button type="button" class="back-action" (click)="selectedPayment.set(null)">
+                        <ion-icon name="arrow-back-outline"></ion-icon>
+                        Payments
+                      </button>
+                      <h2>{{ payment.id }} Payment Detail</h2>
+                      <p>{{ projectName(payment.projectId) }} / {{ payment.mode }}</p>
+                    </div>
+                    <span class="status-pill" [ngClass]="statusClass(payment.status)">{{ payment.status }}</span>
+                  </div>
+                  <div class="detail-metrics">
+                    <div><span>Amount</span><strong>{{ formatMoney(payment.amount) }}</strong></div>
+                    <div><span>Method</span><strong>{{ payment.mode }}</strong></div>
+                    <div><span>Transaction ID</span><strong>{{ payment.reference }}</strong></div>
+                    <div><span>Receipt</span><strong>{{ payment.receipt }}</strong></div>
+                  </div>
+                  <dl class="compact-ledger detail-ledger">
+                    <div><dt>Payment ID</dt><dd>{{ payment.id }}</dd></div>
+                    <div><dt>Project</dt><dd>{{ projectName(payment.projectId) }}</dd></div>
+                    <div><dt>Date</dt><dd>{{ payment.date }}</dd></div>
+                    <div><dt>Collected By</dt><dd>{{ payment.collectedBy }}</dd></div>
+                    <div><dt>Admin Check</dt><dd>{{ payment.status }}</dd></div>
+                  </dl>
+                </article>
+              </ng-container>
+
+              <ng-template #paymentCards>
+                <div class="card-grid">
+                  <article
+                    *ngFor="let payment of filteredPayments()"
+                    class="erp-card selectable"
+                    role="button"
+                    tabindex="0"
+                    [attr.aria-label]="'Open payment details for ' + payment.id"
+                    (click)="selectPayment(payment)"
+                    (keydown.enter)="selectPayment(payment)"
+                    (keydown.space)="selectPayment(payment)"
+                  >
+                    <div class="card-top"><ion-icon name="card-outline"></ion-icon><button type="button" class="edit-card-btn" (click)="openEditForm('payments', payment, $event)" aria-label="Edit payment"><ion-icon name="create-outline"></ion-icon></button><span>{{ payment.status }}</span></div>
+                    <h2>{{ payment.id }}</h2>
+                    <p>{{ projectName(payment.projectId) }} / {{ payment.mode }}</p>
+                    <dl>
+                      <div><dt>Amount</dt><dd>{{ formatMoney(payment.amount) }}</dd></div>
+                      <div><dt>Date</dt><dd>{{ payment.date }}</dd></div>
+                      <div><dt>Transaction ID</dt><dd>{{ payment.reference }}</dd></div>
+                      <div><dt>Receipt</dt><dd>{{ payment.receipt }}</dd></div>
+                      <div><dt>Collected By</dt><dd>{{ payment.collectedBy }}</dd></div>
+                    </dl>
+                  </article>
+                </div>
+              </ng-template>
+            </section>
+
+            <section *ngSwitchCase="'reports'" class="module-stack">
+              <article class="detail-card">
+                <div class="section-title">
+                  <h2>Report Register</h2>
+                  <div class="report-actions">
+                    <button type="button" class="icon-action" (click)="saveReportsAsPdf()"><ion-icon name="document-outline"></ion-icon><span>Save as PDF</span></button>
+                    <button type="button" class="icon-action" (click)="exportReportsToExcel()"><ion-icon name="download-outline"></ion-icon><span>Export to Excel</span></button>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>Category</th><th>Report Name</th><th>Scope</th><th>Owner</th><th>Format</th><th>Status</th></tr></thead>
+                    <tbody>
+                      <tr *ngFor="let report of reports()">
+                        <td>{{ report.category }}</td>
+                        <td>{{ report.name }}</td>
+                        <td>{{ report.scope }}</td>
+                        <td>{{ report.owner }}</td>
+                        <td>{{ report.format }}</td>
+                        <td>{{ report.status }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+            </section>
+
+            <section *ngSwitchCase="'settings'" class="module-stack">
+              <div class="settings-grid">
+                <article class="erp-card"><div class="card-top"><ion-icon name="color-palette-outline"></ion-icon><span>Workspace</span></div><h2>Professional Admin View</h2><p>Full-window ERP layout with searchable modules, editable cards, and focused site workspaces.</p></article>
+                <article class="erp-card"><div class="card-top"><ion-icon name="save-outline"></ion-icon><span>Storage</span></div><h2>Auto Saved Locally</h2><p>Added and edited records are saved in browser localStorage for this prototype workspace.</p></article>
+                <article class="erp-card"><div class="card-top"><ion-icon name="shield-checkmark-outline"></ion-icon><span>Access</span></div><h2>Admin Controls</h2><p>Admin can add records, edit cards, filter modules, and export reports from the dashboard.</p></article>
+                <article class="erp-card"><div class="card-top"><ion-icon name="options-outline"></ion-icon><span>Filters</span></div><h2>Status Filters</h2><p>Filters support active, approved, pending, completed, paid, part paid, and expense risk states.</p></article>
               </div>
             </section>
+          </ng-container>
 
-            <section class="form-overlay" *ngIf="recordDialogOpen()">
-              <form class="erp-dialog operations-dialog" (submit)="saveRecord($event)">
-                <div class="dialog-head">
-                  <div>
-                    <span>{{ activeConfig().label }}</span>
-                    <h2>Add Record</h2>
-                  </div>
-                  <button type="button" class="icon-button" (click)="recordDialogOpen.set(false)">
-                    <ion-icon name="close-outline"></ion-icon>
-                  </button>
+          <section *ngIf="formModule()" class="form-backdrop" aria-modal="true" role="dialog">
+            <form class="record-form" (submit)="$event.preventDefault(); confirmForm()">
+              <div class="section-title">
+                <div>
+                  <span>{{ formMode() === 'add' ? 'Add Card' : 'Edit Card' }}</span>
+                  <h2>{{ formTitle() }}</h2>
                 </div>
-                <div class="erp-form">
-                  <label *ngFor="let column of columnsForActive()">
-                    <span>{{ column.label }}</span>
-                    <input
-                      *ngIf="selectOptions(activeModule(), column.key).length > 0 && allowsCustomOption(activeModule(), column.key); else dashboardDraftSelect"
-                      [attr.list]="'dashboard-draft-' + activeModule() + '-' + column.key"
-                      [type]="column.type || 'text'"
-                      [value]="draftRow()[column.key] || ''"
-                      (input)="updateDraftField(column.key, $any($event.target).value)"
-                    />
-                    <datalist [id]="'dashboard-draft-' + activeModule() + '-' + column.key">
-                      <option *ngFor="let option of selectOptions(activeModule(), column.key)" [value]="option"></option>
-                    </datalist>
-                    <ng-template #dashboardDraftSelect>
-                      <select
-                        *ngIf="selectOptions(activeModule(), column.key).length > 0; else dashboardDraftInput"
-                        [value]="draftRow()[column.key] || ''"
-                        (change)="updateDraftField(column.key, $any($event.target).value)"
-                      >
-                        <option *ngFor="let option of selectOptions(activeModule(), column.key)" [value]="option">{{ option }}</option>
-                      </select>
-                    </ng-template>
-                    <ng-template #dashboardDraftInput>
-                      <input [type]="column.type || 'text'" [value]="draftRow()[column.key] || ''" (input)="updateDraftField(column.key, $any($event.target).value)" />
-                    </ng-template>
-                  </label>
-                </div>
-                <div class="dialog-actions">
-                  <button type="button" class="secondary-action" (click)="recordDialogOpen.set(false)">Cancel</button>
-                  <button type="submit" class="primary-action">Add Record</button>
-                </div>
-              </form>
-            </section>
-
-            <section class="form-overlay" *ngIf="fieldDialogOpen()">
-              <form class="erp-dialog field-dialog" (submit)="saveField($event)">
-                <div class="dialog-head">
-                  <div>
-                    <span>{{ activeConfig().label }}</span>
-                    <h2>Add Field</h2>
-                  </div>
-                  <button type="button" class="icon-button" (click)="fieldDialogOpen.set(false)">
-                    <ion-icon name="close-outline"></ion-icon>
-                  </button>
-                </div>
-                <div class="erp-form">
-                  <label class="span-2">
-                    <span>Field Name</span>
-                    <input [value]="newFieldLabel()" (input)="newFieldLabel.set($any($event.target).value)" placeholder="Example: Verified By" />
-                  </label>
-                </div>
-                <div class="dialog-actions">
-                  <button type="button" class="secondary-action" (click)="fieldDialogOpen.set(false)">Cancel</button>
-                  <button type="submit" class="primary-action">Add Field</button>
-                </div>
-              </form>
-            </section>
-
-            <section class="form-overlay" *ngIf="labourTypeDialogOpen()">
-              <form class="erp-dialog labour-type-dialog" (submit)="saveLabourType($event)">
-                <div class="dialog-head">
-                  <div>
-                    <span>Labour</span>
-                    <h2>Add Labor Type</h2>
-                  </div>
-                  <button type="button" class="icon-button" (click)="closeLabourTypeDialog()">
-                    <ion-icon name="close-outline"></ion-icon>
-                  </button>
-                </div>
-                <div class="erp-form">
-                  <label>
-                    <span>Labor Type</span>
-                    <input
-                      list="universal-labour-type-options"
-                      [value]="labourTypeName()"
-                      (input)="updateLabourTypeName($any($event.target).value)"
-                      placeholder="Type or choose labor type"
-                    />
-                    <datalist id="universal-labour-type-options">
-                      <option *ngFor="let option of labourTypeDialogOptions()" [value]="option"></option>
-                    </datalist>
-                    <div class="labour-type-suggestion-row" *ngIf="labourTypeDialogOptions().length">
-                      <button
-                        *ngFor="let option of labourTypeDialogOptions()"
-                        type="button"
-                        [class.selected]="labourTypeName().toLowerCase() === option.toLowerCase()"
-                        (mousedown)="$event.preventDefault()"
-                        (click)="selectLabourTypeSuggestion(option)"
-                      >
-                        {{ option }}
-                      </button>
-                    </div>
-                  </label>
-                  <label>
-                    <span>Staff Count</span>
-                    <input type="number" min="0" [value]="labourTypeCount()" (input)="labourTypeCount.set($any($event.target).value)" />
-                  </label>
-                  <label>
-                    <span>Daily Wage</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="50"
-                      [value]="labourTypeDailyWage()"
-                      (input)="labourTypeDailyWage.set($any($event.target).value)"
-                      placeholder="950"
-                    />
-                  </label>
-                </div>
-                <div class="dialog-actions">
-                  <button type="button" class="secondary-action" (click)="closeLabourTypeDialog()">Cancel</button>
-                  <button type="submit" class="primary-action">Add Labor Type</button>
-                </div>
-              </form>
-            </section>
-          </main>
-        </ion-content>
-      </div>
-    </ion-split-pane>
+                <button type="button" class="icon-only" (click)="closeForm()" aria-label="Close form"><ion-icon name="close-outline"></ion-icon></button>
+              </div>
+              <div class="form-grid">
+                <label *ngFor="let field of formFields()">
+                  <span>{{ field.label }}</span>
+                  <input
+                    [type]="field.type || 'text'"
+                    [value]="formValue(field.key)"
+                    (input)="updateFormValue(field.key, $any($event.target).value)"
+                    [required]="field.key !== 'id'"
+                  />
+                </label>
+              </div>
+              <div class="form-actions">
+                <button type="button" class="ghost-action" (click)="closeForm()">Cancel</button>
+                <button type="submit" class="confirm-action">Confirm</button>
+              </div>
+            </form>
+          </section>
+        </section>
+        </main>
+      </ion-content>
+    </div>
   `,
+  styles: [
+    `
+      .erp-shell-page {
+        --background: #eef3f8;
+        color: #172033;
+      }
+
+      .erp-split-shell {
+        display: grid;
+        grid-template-columns: 30% 70%;
+        min-height: 100%;
+        background: #eef3f8;
+      }
+
+      .erp-side-nav {
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        overflow: auto;
+        border-right: 1px solid #d8e0ea;
+        background: #142238;
+        color: #ffffff;
+        padding: 18px;
+      }
+
+      .brand-panel {
+        display: grid;
+        grid-template-columns: 58px minmax(0, 1fr);
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 18px;
+        padding: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .brand-panel img {
+        width: 58px;
+        height: 58px;
+        object-fit: contain;
+        border-radius: 6px;
+        background: #ffffff;
+      }
+
+      .brand-panel span,
+      .erp-detail-header span,
+      .section-title span,
+      .card-top span,
+      dt,
+      .erp-card p,
+      .detail-card p {
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .brand-panel span {
+        color: #aebbd0;
+      }
+
+      .brand-panel strong {
+        display: block;
+        margin-top: 3px;
+        font-size: 18px;
+      }
+
+      .erp-side-nav nav {
+        display: grid;
+        gap: 7px;
+      }
+
+      .erp-side-nav button,
+      .project-list button,
+      .section-title button,
+      .subfolder-tabs button {
+        border: 0;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .erp-side-nav nav button {
+        display: grid;
+        grid-template-columns: 22px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        min-height: 44px;
+        padding: 0 12px;
+        border-radius: 8px;
+        background: transparent;
+        color: #cbd5e1;
+        text-align: left;
+      }
+
+      .erp-side-nav nav button.active {
+        background: #d4b45a;
+        color: #201500;
+        font-weight: 850;
+      }
+
+      .erp-side-nav small {
+        min-width: 28px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.12);
+        padding: 3px 7px;
+        text-align: center;
+      }
+
+      .erp-detail-panel {
+        min-width:0;
+        padding: 22px;
+      }
+
+      .erp-detail-header,
+      .section-title,
+      .card-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+      }
+
+      .erp-detail-header {
+        margin-bottom: 18px;
+      }
+
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+
+      .erp-detail-header h1 {
+        margin-top: 4px;
+        font-size: 30px;
+        line-height: 1.12;
+      }
+
+      .erp-search {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: min(390px, 48%);
+        height: 42px;
+        padding: 0 12px;
+        border: 1px solid #d8e0ea;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      .erp-search input {
+        min-width: 0;
+        width: 100%;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        font: inherit;
+      }
+
+      .erp-filter select {
+        height: 42px;
+        min-width: 132px;
+        border: 1px solid #d8e0ea;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #172033;
+        padding: 0 10px;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 750;
+      }
+
+      .module-stack {
+        display: grid;
+        gap: 18px;
+      }
+
+      .metric-grid,
+      .card-grid,
+      .dashboard-grid,
+      .detail-metrics,
+      .expense-detail-grid {
+        display: grid;
+        gap: 14px;
+      }
+
+      .metric-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .metric-grid article,
+      .erp-card,
+      .detail-card {
+        border: 1px solid #d8e0ea;
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+      }
+
+      .metric-grid article {
+        padding: 16px;
+      }
+
+      .metric-grid span,
+      .metric-grid small {
+        display: block;
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .metric-grid strong {
+        display: block;
+        margin: 10px 0 7px;
+        color: #0f172a;
+        font-size: 23px;
+        line-height: 1.05;
+      }
+
+      .dashboard-grid {
+        grid-template-columns: 1.4fr 0.8fr;
+      }
+
+      .wide-card,
+      .dashboard-grid article {
+        padding: 16px;
+        border: 1px solid #d8e0ea;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      .project-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .project-list button {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #f8fafc;
+        color: #172033;
+        text-align: left;
+      }
+
+      .project-list span {
+        display: block;
+        margin-top: 4px;
+        color: #64748b;
+        font-size: 12px;
+      }
+
+      .compact-ledger,
+      .erp-card dl,
+      .pie-card dl {
+        display: grid;
+        gap: 10px;
+        margin: 14px 0 0;
+      }
+
+      .compact-ledger div,
+      .erp-card dl div,
+      .pie-card dl div {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        border-top: 1px solid #edf2f7;
+        padding-top: 9px;
+      }
+
+      dd {
+        margin: 0;
+        color: #172033;
+        font-weight: 850;
+        text-align: right;
+      }
+
+      .card-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .erp-card {
+        padding: 15px;
+      }
+
+      .erp-card.selectable {
+        cursor: pointer;
+      }
+
+      .erp-card.selected {
+        border-color: #b99a3c;
+        box-shadow: 0 0 0 3px rgba(212, 180, 90, 0.22);
+      }
+
+      .erp-card h2 {
+        margin-top: 13px;
+        font-size: 18px;
+        line-height: 1.2;
+      }
+
+      .erp-card p {
+        margin-top: 7px;
+        line-height: 1.45;
+      }
+
+      .card-top ion-icon {
+        width: 24px;
+        height: 24px;
+        color: #0f766e;
+      }
+
+      .avatar {
+        display: grid;
+        place-items: center;
+        width: 42px;
+        height: 42px;
+        border-radius: 8px;
+        background: #eaf2ff;
+        color: #002263;
+        font-weight: 900;
+      }
+
+      .status-pill {
+        border-radius: 999px;
+        padding: 5px 9px;
+        background: #eef2f7;
+        color: #344054;
+      }
+
+      .status-pill.active {
+        background: #dcfce7;
+        color: #166534;
+      }
+
+      .status-pill.on-hold {
+        background: #fef3c7;
+        color: #92400e;
+      }
+
+      .detail-card {
+        padding: 17px;
+      }
+
+      .section-title button {
+        min-height: 38px;
+        padding: 0 12px;
+        border-radius: 8px;
+        background: #002263;
+        color: #ffffff;
+        font-weight: 800;
+      }
+
+      .detail-metrics {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin: 16px 0;
+      }
+
+      .detail-metrics div {
+        padding: 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #f8fafc;
+      }
+
+      .detail-metrics span {
+        display: block;
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .detail-metrics strong {
+        display: block;
+        margin-top: 6px;
+      }
+
+      .table-wrap {
+        width: 100%;
+        overflow-x: auto;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+      }
+
+      table {
+        width: 100%;
+        min-width: 760px;
+        border-collapse: collapse;
+        background: #ffffff;
+      }
+
+      th,
+      td {
+        padding: 11px 12px;
+        border-bottom: 1px solid #edf2f7;
+        color: #172033;
+        font-size: 13px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: #f1f5f9;
+        color: #475569;
+        font-size: 12px;
+        font-weight: 850;
+      }
+
+      .subfolder-tabs {
+        display: flex;
+        gap: 10px;
+      }
+
+      .subfolder-tabs button {
+        min-height: 40px;
+        padding: 0 14px;
+        border: 1px solid #d8e0ea;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #475569;
+        font-weight: 850;
+      }
+
+      .subfolder-tabs button.active {
+        border-color: #002263;
+        background: #002263;
+        color: #ffffff;
+      }
+
+      .expense-detail-grid {
+        grid-template-columns: 220px minmax(0, 1fr);
+        margin-top: 16px;
+      }
+
+      .pie-card {
+        display: grid;
+        align-content: start;
+        justify-items: center;
+        padding: 14px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #f8fafc;
+      }
+
+      .expense-pie {
+        width: 150px;
+        height: 150px;
+        border: 10px solid #ffffff;
+        border-radius: 50%;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+      }
+
+      .erp-shell-host {
+        height: 100%;
+        background: #edf2f7;
+      }
+
+      .erp-shell-page {
+        --background: #edf2f7;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .erp-split-shell {
+        min-height: 100vh;
+        background: #edf2f7;
+      }
+
+      .erp-side-nav {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        border-right: 1px solid #d6deea;
+        background: #0f1b2f;
+        box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.05);
+      }
+
+      .brand-panel {
+        grid-template-columns: 64px minmax(0, 1fr);
+        min-height: 86px;
+        margin-bottom: 2px;
+        border-color: #263a59;
+        background: #14233b;
+      }
+
+      .brand-panel img {
+        width: 64px;
+        height: 64px;
+      }
+
+      .brand-panel strong {
+        color: #ffffff;
+        font-size: 20px;
+        letter-spacing: 0;
+      }
+
+      .side-section-label {
+        margin-top: 2px;
+        color: #8fa0b8;
+        font-size: 11px;
+        font-weight: 850;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+
+      .erp-side-nav nav {
+        gap: 8px;
+      }
+
+      .erp-side-nav nav button {
+        position: relative;
+        min-height: 48px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        color: #d5deec;
+        transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+      }
+
+      .erp-side-nav nav button:hover {
+        border-color: #2a4063;
+        background: #172842;
+        color: #ffffff;
+      }
+
+      .erp-side-nav nav button.active {
+        border-color: #d4b45a;
+        background: #f4f0df;
+        color: #241a00;
+        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.16);
+      }
+
+      .erp-side-nav nav button.active::before {
+        content: "";
+        position: absolute;
+        left: -1px;
+        top: 8px;
+        bottom: 8px;
+        width: 4px;
+        border-radius: 999px;
+        background: #a98215;
+      }
+
+      .erp-side-nav nav button ion-icon {
+        width: 20px;
+        height: 20px;
+      }
+
+      .nav-icon-badge.logo-badge {
+        background: #fff7d6;
+        color: #8a6b04;
+      }
+
+      .erp-side-nav small {
+        background: rgba(255, 255, 255, 0.1);
+        color: inherit;
+        font-size: 11px;
+        font-weight: 850;
+      }
+
+      .erp-detail-panel {
+        display: grid;
+        align-content: start;
+        gap: 16px;
+        padding: 22px 24px 28px;
+        background: #edf2f7;
+      }
+
+      .erp-detail-header {
+        margin: 0;
+        padding: 18px;
+        border: 1px solid #d8e0ea;
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: 0 10px 26px rgba(15, 23, 42, 0.05);
+      }
+
+      .erp-detail-header > div {
+        min-width: 0;
+      }
+
+      .erp-detail-header span {
+        color: #8a6b04;
+        font-size: 11px;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+
+      .erp-detail-header h1 {
+        color: #111827;
+        font-size: 28px;
+        font-weight: 900;
+      }
+
+      .erp-detail-header p {
+        max-width: 760px;
+        margin-top: 7px;
+        color: #5c6b80;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .erp-search {
+        flex: 0 0 min(390px, 42%);
+        height: 44px;
+        border-color: #cfd8e6;
+        background: #f8fafc;
+      }
+
+      .erp-search:focus-within {
+        border-color: #8fa6d2;
+        background: #ffffff;
+        box-shadow: 0 0 0 3px rgba(0, 34, 99, 0.1);
+      }
+
+      .module-overview {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .module-overview div {
+        min-height: 72px;
+        padding: 13px 14px;
+        border: 1px solid #d8e0ea;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      .module-overview span {
+        display: block;
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .module-overview strong {
+        display: block;
+        margin-top: 8px;
+        color: #111827;
+        font-size: 20px;
+        line-height: 1.1;
+      }
+
+      .module-stack {
+        gap: 16px;
+      }
+
+      .metric-grid {
+        grid-template-columns: repeat(4, minmax(170px, 1fr));
+      }
+
+      .metric-grid article {
+        position: relative;
+        min-height: 142px;
+        padding: 16px;
+        overflow: hidden;
+      }
+
+      .metric-grid article ion-icon {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        margin-bottom: 12px;
+        padding: 7px;
+        border-radius: 8px;
+        background: #eef6f5;
+        color: #0f766e;
+      }
+
+      .metric-grid strong {
+        font-size: 22px;
+      }
+
+      .dashboard-grid {
+        grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.8fr);
+      }
+
+      .wide-card,
+      .dashboard-grid article,
+      .erp-card,
+      .detail-card {
+        border-color: #d8e0ea;
+        border-radius: 8px;
+        box-shadow: 0 10px 26px rgba(15, 23, 42, 0.055);
+      }
+
+      .section-title {
+        padding-bottom: 12px;
+        border-bottom: 1px solid #edf2f7;
+      }
+
+      .section-title h2 {
+        color: #111827;
+        font-size: 18px;
+        font-weight: 900;
+      }
+
+      .section-title p {
+        margin-top: 4px;
+        color: #64748b;
+        font-size: 13px;
+      }
+
+      .project-list button {
+        min-height: 68px;
+        background: #ffffff;
+      }
+
+      .project-list button:hover {
+        border-color: #9bb1ce;
+        background: #f8fbff;
+      }
+
+      .project-list small {
+        display: grid;
+        place-items: center;
+        min-width: 46px;
+        height: 34px;
+        border-radius: 999px;
+        background: #eaf2ff;
+        color: #002263;
+        font-weight: 900;
+      }
+
+      .card-grid {
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        align-items: stretch;
+      }
+
+      .erp-card {
+        display: flex;
+        min-height: 258px;
+        flex-direction: column;
+        padding: 16px;
+        transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+      }
+
+      .erp-card.selectable:hover,
+      .erp-card:hover {
+        transform: translateY(-2px);
+        border-color: #aebbd0;
+        box-shadow: 0 16px 34px rgba(15, 23, 42, 0.09);
+      }
+
+      .erp-card.selected {
+        border-color: #b7942f;
+        background: #fffdf6;
+      }
+
+      .erp-card h2 {
+        color: #111827;
+        font-size: 17px;
+        font-weight: 900;
+      }
+
+      .erp-card p {
+        color: #5c6b80;
+      }
+
+      .erp-card dl {
+        margin-top: auto;
+        padding-top: 12px;
+      }
+
+      .compact-ledger div,
+      .erp-card dl div,
+      .pie-card dl div {
+        align-items: flex-start;
+      }
+
+      .card-top {
+        min-height: 36px;
+      }
+
+      .card-top > span,
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        border-radius: 999px;
+        padding: 4px 9px;
+        background: #eef2f7;
+        color: #475569;
+        font-size: 11px;
+        font-weight: 850;
+      }
+
+      .detail-card {
+        padding: 18px;
+      }
+
+      .focused-detail-card {
+        display: grid;
+        gap: 16px;
+      }
+
+      .back-action {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 34px;
+        margin-bottom: 10px;
+        padding: 0 10px;
+        border: 1px solid #d8e0ea;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #334155;
+        font-size: 13px;
+        font-weight: 850;
+      }
+
+      .back-action ion-icon {
+        width: 17px;
+        height: 17px;
+      }
+
+      .client-profile-strip {
+        display: grid;
+        grid-template-columns: 64px repeat(4, minmax(0, 1fr));
+        align-items: center;
+        gap: 12px;
+        padding: 14px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #f8fafc;
+      }
+
+      .avatar.large {
+        width: 58px;
+        height: 58px;
+        font-size: 20px;
+      }
+
+      .client-profile-strip span {
+        display: block;
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .client-profile-strip strong {
+        display: block;
+        margin-top: 5px;
+        color: #111827;
+        font-size: 15px;
+        line-height: 1.25;
+      }
+
+      .client-site-workspace {
+        margin: 4px 0 18px;
+      }
+
+      .site-card-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+        gap: 10px;
+      }
+
+      .site-card {
+        display: grid;
+        gap: 5px;
+        min-height: 112px;
+        padding: 16px;
+        border: 1px solid #c8d5e5;
+        border-radius: 8px;
+        background: linear-gradient(180deg, #ffffff, #eef4ff);
+        color: #172033;
+        text-align: left;
+        font: inherit;
+        cursor: pointer;
+        box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+      }
+
+      .site-card span,
+      .site-card small {
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .site-card strong {
+        font-size: 17px;
+        font-weight: 900;
+      }
+
+      .site-card:hover {
+        border-color: #002263;
+        transform: translateY(-1px);
+      }
+
+      .site-card.active {
+        border-color: #002263;
+        background: #eef4ff;
+        box-shadow: 0 0 0 3px rgba(0, 34, 99, 0.12);
+      }
+
+      .section-title.compact {
+        margin-bottom: 12px;
+      }
+
+      .section-title.compact h2 {
+        font-size: 16px;
+      }
+
+      .detail-metrics div {
+        background: #ffffff;
+      }
+
+      .table-wrap {
+        background: #ffffff;
+      }
+
+      table {
+        min-width: 820px;
+      }
+
+      th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: #f8fafc;
+        color: #475569;
+        text-transform: uppercase;
+      }
+
+      .subfolder-tabs {
+        width: fit-content;
+        padding: 4px;
+        border: 1px solid #d8e0ea;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      .subfolder-tabs button {
+        border-color: transparent;
+        border-radius: 6px;
+      }
+
+      .expense-detail-grid {
+        grid-template-columns: 240px minmax(0, 1fr);
+      }
+
+      .pie-card {
+        min-height: 260px;
+      }
+
+      @media (max-width: 1100px) {
+        .erp-detail-header,
+        .erp-detail-panel {
+          gap: 14px;
+        }
+
+        .module-overview {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .client-profile-strip {
+          grid-template-columns: 64px repeat(2, minmax(0, 1fr));
+        }
+
+        .client-upper-nav {
+          grid-template-columns: repeat(4, minmax(130px, 1fr));
+        }
+
+        .client-upper-nav .nav-title {
+          grid-column: 1 / -1;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .erp-side-nav {
+          height: auto;
+        }
+
+        .erp-side-nav nav {
+          grid-template-columns: 1fr;
+        }
+
+        .erp-detail-header {
+          padding: 16px;
+        }
+
+        .erp-search,
+        .module-overview {
+          width: 100%;
+          grid-template-columns: 1fr;
+        }
+
+        .client-profile-strip {
+          grid-template-columns: 1fr;
+        }
+
+        .client-upper-nav {
+          position: static;
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      .admin-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 12px;
+        flex: 0 0 min(560px, 52%);
+        min-width: 320px;
+      }
+
+      .admin-user-chip {
+        display: grid;
+        min-width: 112px;
+        min-height: 44px;
+        align-content: center;
+        padding: 0 12px;
+        border: 1px solid #d8e0ea;
+        border-radius: 8px;
+        background: #fffdf6;
+      }
+
+      .admin-user-chip span {
+        color: #8a6b04;
+        font-size: 11px;
+        font-weight: 850;
+      }
+
+      .admin-user-chip strong {
+        color: #111827;
+        font-size: 13px;
+        line-height: 1.2;
+      }
+
+      .icon-action,
+      .confirm-action,
+      .ghost-action,
+      .edit-card-btn,
+      .icon-only {
+        border: 0;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .icon-action {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 42px;
+        padding: 0 12px;
+        border: 1px solid #d8e0ea;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #172033;
+        font-size: 13px;
+        font-weight: 850;
+      }
+
+      .add-action,
+      .confirm-action {
+        border-color: #002263;
+        background: #002263;
+        color: #ffffff;
+      }
+
+      .report-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+
+      .edit-card-btn,
+      .icon-only {
+        display: inline-grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        background: #eef4ff;
+        color: #002263;
+      }
+
+      .form-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: grid;
+        place-items: center;
+        padding: 22px;
+        background: rgba(15, 23, 42, 0.45);
+      }
+
+      .record-form {
+        width: min(820px, 100%);
+        max-height: calc(100vh - 44px);
+        overflow: auto;
+        padding: 18px;
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+      }
+
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .form-grid label {
+        display: grid;
+        gap: 6px;
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 850;
+      }
+
+      .form-grid input {
+        min-height: 42px;
+        border: 1px solid #d8e0ea;
+        border-radius: 8px;
+        padding: 0 10px;
+        color: #172033;
+        font: inherit;
+      }
+
+      .form-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .confirm-action,
+      .ghost-action {
+        min-height: 40px;
+        padding: 0 14px;
+        border-radius: 8px;
+        font-weight: 850;
+      }
+
+      .ghost-action {
+        background: #eef2f7;
+        color: #334155;
+      }
+
+      .settings-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .erp-card.selectable:focus-visible,
+      .erp-side-nav nav button:focus-visible,
+      .client-upper-nav button:focus-visible,
+      .site-card:focus-visible,
+      .project-list button:focus-visible,
+      .section-title button:focus-visible,
+      .subfolder-tabs button:focus-visible,
+      .back-action:focus-visible {
+        outline: 3px solid rgba(0, 34, 99, 0.28);
+        outline-offset: 3px;
+      }
+
+      .erp-card dl div {
+        min-height: 29px;
+      }
+
+      :host {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      .erp-shell-host,
+      .erp-shell-page,
+      .erp-shell-page::part(scroll) {
+        width: 100%;
+        height: 100%;
+      }
+
+      .erp-shell-page::part(scroll) {
+        overflow: hidden;
+      }
+
+      .erp-split-shell {
+        height: 100vh;
+        min-height: 100vh;
+        overflow: hidden;
+      }
+
+      .erp-side-nav {
+        height: 100vh;
+        min-height: 100vh;
+      }
+
+      .erp-detail-panel {
+        height: 100vh;
+        overflow-y: auto;
+        padding: 18px;
+      }
+
+      .module-stack {
+        min-height: 0;
+      }
+
+      .focused-detail-card {
+        min-height: calc(100vh - 178px);
+      }
+
+      .record-detail-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+        gap: 16px;
+      }
+
+      .record-detail-grid > section,
+      .record-detail-grid > aside {
+        min-width: 0;
+        padding: 14px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      .insight-card-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+        gap: 12px;
+        margin-top: 12px;
+      }
+
+      .insight-card {
+        display: flex;
+        min-height: 220px;
+        flex-direction: column;
+        padding: 14px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      .insight-card h3 {
+        margin: 10px 0 4px;
+        color: #111827;
+        font-size: 16px;
+        font-weight: 900;
+      }
+
+      .insight-card p {
+        margin: 0;
+        color: #64748b;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .insight-card dl {
+        display: grid;
+        gap: 8px;
+        margin: auto 0 0;
+        padding-top: 12px;
+      }
+
+      .insight-card dl div {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        border-top: 1px solid #edf2f7;
+        padding-top: 7px;
+      }
+
+      .client-upper-nav {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: grid;
+        grid-template-columns: minmax(180px, 0.9fr) repeat(7, minmax(118px, 1fr));
+        gap: 6px;
+        align-items: center;
+        padding: 10px;
+        margin-bottom: 16px;
+        border: 1px solid #c8d5e5;
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+      }
+
+      .client-upper-nav .nav-title {
+        display: grid;
+        min-width:0;
+        padding: 8px;
+      }
+
+      .client-upper-nav button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-height: 44px;
+        min-width: 0;
+        padding: 0 10px;
+        border: 1px solid #d8e0ea;
+        border-radius: 7px;
+        background: #f8fafc;
+        color: #475569;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 850;
+        cursor: pointer;
+      }
+
+      .client-upper-nav button.active {
+        border-color: #002263;
+        background: #002263;
+        color: #ffffff;
+        box-shadow: inset 0 -3px 0 #d4b45a;
+      }
+      
+      .client-upper-nav button:hover:not(.active) {
+        border-color: #b8c7da;
+        background: #eef4ff;
+        color: #002263;
+      }
+
+      .detail-ledger {
+        padding: 14px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      @media (max-width: 760px) {
+        .admin-toolbar {
+          display: grid;
+          width: 100%;
+          min-width: 0;
+          flex: 1 1 auto;
+        }
+
+        .erp-split-shell,
+        .erp-side-nav,
+        .erp-detail-panel {
+          height: auto;
+          min-height: 0;
+          overflow: visible;
+        }
+
+        .erp-shell-page::part(scroll) {
+          overflow: auto;
+        }
+
+        .focused-detail-card {
+          min-height: 0;
+        }
+
+        .record-detail-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .erp-filter select {
+          width: 100%;
+        }
+      }
+
+      .erp-split-shell {
+        grid-template-columns: 20% 80%;
+      }
+
+      @media (max-width: 1100px) {
+        .erp-split-shell {
+          grid-template-columns: 230px minmax(0, 1fr);
+        }
+      }
+
+      @media (max-width: 760px) {
+        .erp-split-shell {
+          grid-template-columns: 1fr;
+        }
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UniversalDashboardPage {
   readonly data = inject(ErpDataService);
   readonly router = inject(Router);
-  readonly modules = dashboardModules;
   readonly formatMoney = formatMoney;
+  readonly formatNumber = formatNumber;
   readonly statusClass = statusClass;
-  readonly activeModule = signal<DashboardModule>("clients");
+  readonly todayLabel = "2026-06-08";
+
+  readonly navItems: { key: NavKey; label: string; icon: string; logo?: boolean }[] = [
+    { key: "dashboard", label: "Dashboard", icon: "grid-outline" },
+    { key: "clients", label: "Client", icon: "people-outline" },
+    { key: "materials", label: "Materials", icon: "cube-outline" },
+    { key: "vendors", label: "Vendors", icon: "business-outline" },
+    { key: "subcontract", label: "Subcontract", icon: "construct-outline" },
+    { key: "labours", label: "Labours", icon: "people-outline" },
+    { key: "supervisors", label: "Supervisors", icon: "shield-checkmark-outline", logo: true },
+    { key: "expenses", label: "Expenses", icon: "receipt-outline" },
+    { key: "payments", label: "Payment", icon: "card-outline", logo: true },
+    { key: "reports", label: "Report", icon: "document-text-outline" },
+    { key: "settings", label: "Settings", icon: "settings-outline" },
+  ];
+
+  readonly clientSections: { key: ClientSection; label: string; icon: string }[] = [
+    { key: "materials", label: "Material", icon: "cube-outline" },
+    { key: "labours", label: "Labours", icon: "people-outline" },
+    { key: "vendors", label: "Vendors", icon: "business-outline" },
+    { key: "subcontract", label: "Subcontract", icon: "construct-outline" },
+    { key: "supervisors", label: "Supervisor", icon: "id-card-outline" },
+    { key: "siteExpense", label: "Site Expense", icon: "receipt-outline" },
+    { key: "reports", label: "Report", icon: "document-text-outline" },
+  ];
+
+  readonly activeNav = signal<NavKey>("dashboard");
+  readonly expenseMode = signal<ExpenseMode>("site");
+  readonly activeClientSection = signal<ClientSection | null>(null);
+  readonly activeClientSiteKey = signal<string | null>(null);
   readonly searchText = signal("");
-  readonly selectedFilters = signal<Record<string, string>>({});
-  readonly recordDialogOpen = signal(false);
-  readonly fieldDialogOpen = signal(false);
-  readonly draftRow = signal<TableRow>({});
-  readonly newFieldLabel = signal("");
-  readonly openSelectKey = signal("");
-  readonly openFilterKey = signal("");
-  readonly selectCustomValue = signal("");
-  readonly labourTypeDialogOpen = signal(false);
-  readonly labourTypeRowId = signal("");
-  readonly labourTypeName = signal("Mason");
-  readonly labourTypeCount = signal("1");
-  readonly labourTypeDailyWage = signal("");
-  readonly activeConfig = computed(() => dashboardModules.find((module) => module.key === this.activeModule()) ?? dashboardModules[0]);
+  readonly statusFilter = signal("all");
+  readonly labourCategoryFilter = signal("all");
+  readonly selectedClient = signal<Client | null>(null);
+  readonly selectedMaterial = signal<MaterialRow | null>(null);
+  readonly selectedVendor = signal<Vendor | null>(null);
+  readonly selectedSubcontractor = signal<Subcontractor | null>(null);
+  readonly selectedLabour = signal<LabourRow | null>(null);
+  readonly selectedSupervisor = signal<Supervisor | null>(null);
+  readonly selectedGeneralExpense = signal<ExpenseRow | null>(null);
+  readonly selectedExpenseGroup = signal<SiteExpenseGroup | null>(null);
+  readonly selectedPayment = signal<PaymentRow | null>(null);
+  readonly formModule = signal<EditableModule | null>(null);
+  readonly formMode = signal<FormMode>("add");
+  readonly formDraft = signal<Record<string, string>>({});
+  readonly editingId = signal<string | null>(null);
 
-  activeProjectsCount() {
-    return this.data.projects().filter((project) => project.status === "Active").length;
-  }
+  readonly activeProjects = computed(() => this.data.projects().filter((project) => project.status === "Active"));
+  readonly totalProjectValue = computed(() => this.data.projects().reduce((sum, project) => sum + project.totalValue, 0));
+  readonly totalReceived = computed(() => this.data.projects().reduce((sum, project) => sum + project.receivedAmount, 0));
+  readonly totalPending = computed(() => this.totalProjectValue() - this.totalReceived());
+  readonly totalSiteExpense = computed(() => this.data.expenses().filter((row) => row.type === "Site Expense").reduce((sum, row) => sum + row.spent, 0));
+  readonly pendingMaterials = computed(() => this.data.materials().filter((row) => row.status === "Pending").length);
+  readonly pendingLabour = computed(() => this.data.labour().filter((row) => row.status === "Pending").length);
+  readonly pendingExpenses = computed(() => this.data.expenses().filter((row) => row.status === "Pending").length);
+  readonly labourCategories = computed(() => [...new Set([...this.data.labour().map((row) => row.category).filter(Boolean), "Civil", "Concrete", "Mason", "Plumber", "Electrical"])].sort());
 
-  projectsOnHoldCount() {
-    return this.data.projects().filter((project) => project.status === "On Hold").length;
-  }
+  readonly siteExpenseGroups = computed<SiteExpenseGroup[]>(() => {
+    const groups = new Map<string, SiteExpenseGroup>();
+    for (const row of this.data.expenses().filter((expense) => expense.type === "Site Expense")) {
+      const project = this.projectById(row.projectId);
+      const key = `${row.projectId}:${row.site}`;
+      const current =
+        groups.get(key) ??
+        ({
+          key,
+          projectId: row.projectId,
+          projectName: project?.name ?? row.projectId,
+          site: row.site,
+          supervisor: row.supervisor,
+          spent: 0,
+          received: 0,
+          balance: 0,
+          rows: [],
+        } satisfies SiteExpenseGroup);
+      current.spent += row.spent;
+      current.received += row.received;
+      current.balance = current.received - current.spent;
+      current.rows = [...current.rows, row];
+      groups.set(key, current);
+    }
+    return [...groups.values()];
+  });
 
-  pendingApprovalCount() {
-    return this.pendingApprovalRows().length;
-  }
+  readonly reports = computed(() =>
+    [
+      ["Financial", "Payment Collection Report", "All client receipts and pending collection", "Accountant", "PDF / Excel", "Ready"],
+      ["Financial", "Expense Report", "Site and general expense ledgers", "Admin", "PDF / Excel", "Ready"],
+      ["Labour", "Attendance Report", "Labour attendance, wage, overtime, and fine", "Project Manager", "Excel", "Ready"],
+      ["Material", "Inventory Report", "Purchased, consumed, remaining stock by site", "Project Manager", "Excel", "Ready"],
+      ["Vendor", "Vendor Purchase Report", "Vendor supply records by project and site", "Admin", "Excel", "Ready"],
+      ["Subcontract", "Subcontractor Ledger", "Work package value, advance, balance, status", "Project Manager", "PDF / Excel", "Ready"],
+      ["Project", "Project Summary", "Client, site, value, progress, and balance", "Admin", "PDF", "Ready"],
+    ].map(([category, name, scope, owner, format, status]) => ({ category, name, scope, owner, format, status })),
+  );
 
-  switchModule(module: DashboardModule) {
-    this.activeModule.set(module);
+  selectNav(key: NavKey) {
+    this.activeNav.set(key);
     this.searchText.set("");
-    this.selectedFilters.set({});
-    this.openSelectKey.set("");
-    this.openFilterKey.set("");
+    this.statusFilter.set("all");
+    this.labourCategoryFilter.set("all");
+    this.selectedPayment.set(null);
+    this.activeClientSiteKey.set(null);
+    this.activeClientSection.set(null);
   }
 
-  columnsForActive(): FieldSchema[] {
-    const base = this.activeConfig().columns;
-    const custom = this.data.customFieldsFor(this.activeModule());
-    const hidden = new Set(this.data.hiddenFieldsFor(this.activeModule()));
-    const columns = this.activeModule() === "labour" ? this.withLabourWageColumns(base, custom) : [...base, ...custom];
-    return columns.filter((column) => !hidden.has(column.key));
+  setStatusFilter(value: string) {
+    this.statusFilter.set(value);
   }
 
-  hiddenFieldCount(module: DashboardModule): number {
-    return this.data.hiddenFieldsFor(module).length;
+  setLabourCategoryFilter(value: string) {
+    this.labourCategoryFilter.set(value);
   }
 
-  hideField(module: DashboardModule, key: string, event?: Event) {
+  selectClient(client: Client) {
+    this.selectedClient.set(client);
+    this.activeClientSection.set(null);
+    this.activeClientSiteKey.set(null);
+  }
+
+  openClientSite(site: ClientSite) {
+    this.activeClientSiteKey.set(site.key);
+    this.activeClientSection.set("materials");
+  }
+
+  selectVendor(vendor: Vendor) {
+    this.selectedVendor.set(vendor);
+  }
+
+  selectMaterial(material: MaterialRow) {
+    this.selectedMaterial.set(material);
+  }
+
+  selectSubcontractor(subcontractor: Subcontractor) {
+    this.selectedSubcontractor.set(subcontractor);
+  }
+
+  selectLabour(labour: LabourRow) {
+    this.selectedLabour.set(labour);
+  }
+
+  selectSupervisor(supervisor: Supervisor) {
+    this.selectedSupervisor.set(supervisor);
+  }
+
+  selectGeneralExpense(expense: ExpenseRow) {
+    this.selectedGeneralExpense.set(expense);
+  }
+
+  selectExpenseGroup(group: SiteExpenseGroup) {
+    this.selectedExpenseGroup.set(group);
+  }
+
+  selectPayment(payment: PaymentRow) {
+    this.selectedPayment.set(payment);
+  }
+
+  activeAddModule(): EditableModule | null {
+    const client = this.selectedClient();
+    if (this.activeNav() === "clients" && client && this.activeClientSite(client)) {
+      const section = this.activeClientSection();
+      if (section === "materials") return "materials";
+      if (section === "labours") return "labours";
+      if (section === "vendors") return "vendors";
+      if (section === "subcontract") return "subcontract";
+      if (section === "supervisors") return "supervisors";
+      if (section === "siteExpense") return "expenses";
+      return null;
+    }
+    const nav = this.activeNav();
+    return ["clients", "materials", "vendors", "subcontract", "labours", "supervisors", "expenses", "payments"].includes(nav) ? (nav as EditableModule) : null;
+  }
+
+  openAddForm() {
+    const module = this.activeAddModule();
+    if (!module) return;
+    this.formModule.set(module);
+    this.formMode.set("add");
+    this.editingId.set(null);
+    this.formDraft.set(this.defaultDraft(module));
+  }
+
+  openEditForm(module: EditableModule, row: Record<string, unknown>, event?: Event) {
     event?.stopPropagation();
-    this.data.hideTableField(module, key);
+    this.formModule.set(module);
+    this.formMode.set("edit");
+    this.editingId.set(String(row["id"] ?? ""));
+    this.formDraft.set(this.rowToDraft(module, row));
   }
 
-  resetFields(module: DashboardModule) {
-    this.data.resetTableFields(module);
+  openEditExpenseGroup(group: SiteExpenseGroup, event?: Event) {
+    const row = group.rows[0];
+    if (row) this.openEditForm("expenses", row as unknown as Record<string, unknown>, event);
   }
 
-  private withLabourWageColumns(base: FieldSchema[], custom: FieldSchema[]): FieldSchema[] {
-    const wageFields = custom.filter((field) => this.isLabourWageField(field));
-    const otherFields = custom.filter((field) => !this.isLabourWageField(field));
-    const orderedBase = base.flatMap((field) => (field.key === "staffCount" ? [...wageFields, field] : [field]));
-    return [...orderedBase, ...otherFields];
+  closeForm() {
+    this.formModule.set(null);
+    this.editingId.set(null);
+    this.formDraft.set({});
   }
 
-  private isLabourWageField(field: FieldSchema): boolean {
-    return field.label.toLowerCase().includes("daily wage");
+  formTitle(): string {
+    const module = this.formModule();
+    const labels: Record<EditableModule, string> = {
+      clients: "Client Card",
+      materials: "Material Card",
+      vendors: "Vendor Card",
+      subcontract: "Subcontract Card",
+      labours: "Labour Card",
+      supervisors: "Supervisor Card",
+      expenses: "Expense Card",
+      payments: "Payment Card",
+    };
+    return module ? labels[module] : "ERP Card";
   }
 
-  visibleRows(): TableRow[] {
-    const query = this.searchText().trim().toLowerCase();
-    const filters = this.selectedFilters();
-    const rows = this.rowsFor(this.activeModule()).filter((row) => {
-      const matchesSearch = !query || Object.values(row).some((value) => String(value).toLowerCase().includes(query));
-      const matchesFilters = Object.entries(filters).every(([key, value]) => !value || String(row[key]) === value);
-      return matchesSearch && matchesFilters;
-    });
-    return this.withComputedRows(this.activeModule(), rows);
+  formFields(): FormField[] {
+    const module = this.formModule();
+    if (!module) return [];
+    return this.fieldsFor(module);
   }
 
-  filterValues(key: string): string[] {
-    const values = new Set<string>();
-    for (const option of this.selectOptions(this.activeModule(), key)) {
-      if (option) values.add(option);
-    }
-    for (const row of this.withComputedRows(this.activeModule(), this.rowsFor(this.activeModule()))) {
-      const value = row[key];
-      if (value !== undefined && value !== "") values.add(String(value));
-    }
-    return [...values].sort((a, b) => a.localeCompare(b));
+  formValue(key: string): string {
+    return this.formDraft()[key] ?? "";
   }
 
-  isFilterMenuOpen(key: string): boolean {
-    return this.openFilterKey() === key;
+  updateFormValue(key: string, value: string) {
+    this.formDraft.update((draft) => ({ ...draft, [key]: value }));
   }
 
-  toggleFilterMenu(key: string) {
-    this.openFilterKey.set(this.openFilterKey() === key ? "" : key);
+  confirmForm() {
+    const module = this.formModule();
+    if (!module) return;
+    const draft = this.formDraft();
+    if (this.formMode() === "edit") this.updateRecord(module, draft);
+    else this.addRecord(module, draft);
+    this.closeForm();
   }
 
-  expenseFilterBalanceVisible(): boolean {
-    const filters = this.selectedFilters();
-    return Boolean(filters["project"] && filters["site"]);
+  activeEyebrow(): string {
+    const item = this.navItems.find((nav) => nav.key === this.activeNav());
+    return item?.label ?? "ERP";
   }
 
-  expenseFilterOpeningLabel(): string {
-    const row = this.visibleRows().find((entry) => this.activeModule() === "expenses" && entry["project"] === this.selectedFilters()["project"] && entry["site"] === this.selectedFilters()["site"]);
-    return row ? formatMoney(this.expenseOpeningBalanceFor(row)) : formatMoney(0);
+  activeTitle(): string {
+    const titles: Record<NavKey, string> = {
+      dashboard: "Construction Dashboard",
+      clients: "Client Workspace",
+      materials: "Site Material Stock",
+      vendors: "Vendor Supply Directory",
+      subcontract: "Subcontract Register",
+      labours: "Labour Attendance Cards",
+      supervisors: "Supervisor Directory",
+      expenses: "Expense Folders",
+      payments: "Payment Register",
+      reports: "Report Register",
+      settings: "ERP Settings",
+    };
+    return titles[this.activeNav()];
   }
 
-  expenseFilterCurrentLabel(): string {
-    const rows = this.visibleRows().filter((entry) => entry["project"] === this.selectedFilters()["project"] && entry["site"] === this.selectedFilters()["site"]);
-    const latest = rows.at(-1);
-    return latest ? String(latest["runningBalance"] || formatMoney(0)) : formatMoney(0);
+  activeDescription(): string {
+    const descriptions: Record<NavKey, string> = {
+      dashboard: "A control-room view of project value, receipts, pending balances, expense pressure, and active work.",
+      clients: "Scan client cards, compare sites and receivables, then open the complete client/project workspace.",
+      materials: "Track requested, approved, purchased, consumed, and remaining material stock across all sites.",
+      vendors: "Review supplier profiles and inspect which material each vendor supplied to each project site.",
+      subcontract: "Monitor work packages, advance paid, balance, due dates, and payment state for subcontractors.",
+      labours: "View labour parties by site, category, attendance count, joining reference, and weekly payable amount.",
+      supervisors: "See supervisor assignments, cash limits, active advances, and approval authority at a glance.",
+      expenses: "Separate site and general expenses, then drill into site ledgers with chart and transaction detail.",
+      payments: "Review UPI, NEFT, cash, cheque, and bank transfer receipts with transaction IDs and approval status.",
+      reports: "Keep export-ready registers for finance, materials, labour, vendors, subcontractors, and projects.",
+      settings: "Manage the prototype workspace assumptions, storage behavior, roles, and display preferences.",
+    };
+    return descriptions[this.activeNav()];
   }
 
-  rowCountFor(module: DashboardModule): number {
-    return this.rowsFor(module).length;
+  summaryStats(): Array<{ label: string; value: string | number }> {
+    const stats: Record<NavKey, Array<{ label: string; value: string | number }>> = {
+      dashboard: [
+        { label: "Active Projects", value: this.activeProjects().length },
+        { label: "Collection Rate", value: this.collectionRate() },
+        { label: "Pending Approvals", value: this.pendingMaterials() + this.pendingLabour() + this.pendingExpenses() },
+      ],
+      clients: [
+        { label: "Total Clients", value: this.data.clients().length },
+        { label: "Active Clients", value: this.data.activeClients() },
+        { label: "Total Sites", value: this.data.projects().reduce((sum, project) => sum + project.sites.length, 0) },
+      ],
+      materials: [
+        { label: "Material Rows", value: this.data.materials().length },
+        { label: "Pending Requests", value: this.pendingMaterials() },
+        { label: "Vendors Used", value: new Set(this.data.materials().map((row) => row.vendor)).size },
+      ],
+      vendors: [
+        { label: "Vendor Profiles", value: this.data.vendors().length },
+        { label: "Supply Entries", value: this.data.materials().length },
+        { label: "Material Types", value: new Set(this.data.vendors().map((row) => row.materialType)).size },
+      ],
+      subcontract: [
+        { label: "Subcontracts", value: this.data.subcontractors().length },
+        { label: "Pending Approval", value: this.data.subcontractors().filter((row) => row.approvalStatus === "Pending").length },
+        { label: "Open Balance", value: formatMoney(this.data.subcontractors().reduce((sum, row) => sum + row.contractValue - row.advancePaid, 0)) },
+      ],
+      labours: [
+        { label: "Labour Rows", value: this.data.labour().length },
+        { label: "Present Count", value: this.data.labour().reduce((sum, row) => sum + row.presentCount, 0) },
+        { label: "Pending Rows", value: this.pendingLabour() },
+      ],
+      supervisors: [
+        { label: "Supervisors", value: this.data.supervisors().length },
+        { label: "Active", value: this.data.supervisors().filter((row) => row.status === "Active").length },
+        { label: "Active Advances", value: formatMoney(this.data.supervisors().reduce((sum, row) => sum + row.activeAdvances, 0)) },
+      ],
+      expenses: [
+        { label: "Site Ledgers", value: this.siteExpenseGroups().length },
+        { label: "Site Spend", value: formatMoney(this.totalSiteExpense()) },
+        { label: "General Spend", value: formatMoney(this.data.expenses().filter((row) => row.type === "General Expense").reduce((sum, row) => sum + row.spent, 0)) },
+      ],
+      payments: [
+        { label: "Payments", value: this.data.payments().length },
+        { label: "Total Received", value: formatMoney(this.data.payments().reduce((sum, row) => sum + row.amount, 0)) },
+        { label: "UPI / NEFT", value: this.data.payments().filter((row) => row.mode === "UPI" || row.mode === "NEFT").length },
+      ],
+      reports: [
+        { label: "Reports", value: this.reports().length },
+        { label: "Formats", value: "PDF / Excel" },
+        { label: "Status", value: "Ready" },
+      ],
+      settings: [
+        { label: "Storage", value: "Local" },
+        { label: "Roles", value: "4" },
+        { label: "Mode", value: "Prototype" },
+      ],
+    };
+    return stats[this.activeNav()];
   }
 
-  pendingApprovalRows(): TableRow[] {
-    const modules: DashboardModule[] = ["materials", "labour", "expenses", "generalExpenses", "payments", "subcontractors"];
-    return modules.flatMap((module) =>
-      this.rowsFor(module)
-        .filter((row) => this.isPendingApproval(row))
-        .map((row) => ({ ...row, sourceModule: module, approvalField: row["approvalStatus"] !== undefined ? "approvalStatus" : "status" })),
+  navCount(key: NavKey): number | string {
+    const counts: Record<NavKey, number | string> = {
+      dashboard: this.data.projects().length,
+      clients: this.data.clients().length,
+      materials: this.data.materials().length,
+      vendors: this.data.vendors().length,
+      subcontract: this.data.subcontractors().length,
+      labours: this.data.labour().length,
+      supervisors: this.data.supervisors().length,
+      expenses: this.data.expenses().length,
+      payments: this.data.payments().length,
+      reports: this.reports().length,
+      settings: "3",
+    };
+    return counts[key];
+  }
+
+  collectionRate(): string {
+    return this.totalProjectValue() ? `${Math.round((this.totalReceived() / this.totalProjectValue()) * 100)}%` : "0%";
+  }
+
+  filteredClients(): Client[] {
+    return this.filterRows(this.data.clients(), (client) => [client.name, client.address, client.mobile, client.supervisor], (client) => client.status);
+  }
+
+  filteredMaterials(): MaterialRow[] {
+    return this.filterRows(this.data.materials(), (row) => [row.name, row.site, row.vendor, this.projectName(row.projectId)], (row) => row.status);
+  }
+
+  filteredVendors(): Vendor[] {
+    return this.filterRows(this.data.vendors(), (vendor) => [vendor.name, vendor.materialType, vendor.phone, vendor.address, vendor.gst], (vendor) => (this.materialsForVendor(vendor).some((row) => row.status === "Pending") ? "Pending" : "Approved"));
+  }
+
+  filteredSubcontractors(): Subcontractor[] {
+    return this.filterRows(this.data.subcontractors(), (row) => [row.name, row.site, row.workPackage, row.supervisor, this.projectName(row.projectId)], (row) => row.paymentStatus);
+  }
+
+  filteredLabour(): LabourRow[] {
+    return this.filterLabourCategory(this.filterRows(this.data.labour(), (row) => [row.party, row.site, row.category, this.projectName(row.projectId)], (row) => row.status));
+  }
+
+  filteredSupervisors(): Supervisor[] {
+    return this.filterRows(this.data.supervisors(), (row) => [row.name, row.role, row.phone, row.assignedProject, row.assignedSite], (row) => row.status);
+  }
+
+  filteredSiteExpenseGroups(): SiteExpenseGroup[] {
+    return this.filterRows(this.siteExpenseGroups(), (row) => [row.site, row.projectName, row.supervisor], (row) => this.expenseRisk(row));
+  }
+
+  filteredGeneralExpenses(): ExpenseRow[] {
+    return this.filterRows(this.data.expenses().filter((row) => row.type === "General Expense"), (row) => [row.description, row.supervisor, row.reference], (row) => row.status);
+  }
+
+  filteredPayments(): PaymentRow[] {
+    return this.filterRows(this.data.payments(), (row) => [row.id, row.mode, row.receipt, row.reference, row.collectedBy, this.projectName(row.projectId)], (row) => row.status);
+  }
+
+  dailyMaterialRequests(): number {
+    return this.data.materials().filter((row) => row.status === "Pending").reduce((sum, row) => sum + row.requested, 0);
+  }
+
+  dailyPaymentTotal(): number {
+    return this.data.payments().filter((row) => row.date === this.todayLabel).reduce((sum, row) => sum + row.amount, 0);
+  }
+
+  dailyLabourPresent(): number {
+    return this.data.labour().reduce((sum, row) => sum + row.presentCount, 0);
+  }
+
+  dailyExpenseTotal(): number {
+    return this.data.expenses().filter((row) => row.date === this.todayLabel || row.status === "Pending").reduce((sum, row) => sum + row.spent, 0);
+  }
+
+  clientSummary(client: Client) {
+    return this.data.clientSummary(client);
+  }
+
+  projectsForClient(client: Client): Project[] {
+    return this.data.projectsForClient(client);
+  }
+
+  sitesForClient(client: Client): ClientSite[] {
+    return this.projectsForClient(client).flatMap((project) =>
+      project.sites.map((site) => ({
+        key: `${project.id}:${site}`,
+        projectId: project.id,
+        projectName: project.name,
+        site,
+        status: project.status,
+        completion: project.completion,
+        startDate: project.startDate,
+      })),
     );
   }
 
-  private isPendingApproval(row: TableRow): boolean {
-    const value = String(row["approvalStatus"] || row["status"] || "").toLowerCase();
-    return value === "pending";
+  activeClientSite(client: Client): ClientSite | null {
+    const sites = this.sitesForClient(client);
+    const key = this.activeClientSiteKey();
+    if (!key) return null;
+    return sites.find((site) => site.key === key) ?? null;
   }
 
-  selectedFilterCount(): number {
-    return Object.values(this.selectedFilters()).filter(Boolean).length;
+  siteLabourPresent(client: Client): number {
+    return this.labourForClientSite(client).reduce((sum, row) => sum + row.presentCount, 0);
   }
 
-  isReadonlyColumn(key: string): boolean {
-    return (
-      key === "clientId" ||
-      key === "vendorId" ||
-      key === "supervisorId" ||
-      key === "subcontractId" ||
-      key === "runningBalance" ||
-      key === "weeklyPayable" ||
-      key === "weeklyPay" ||
-      key === "staffCount" ||
-      key === "balance"
-    );
+  siteExpenseTotal(client: Client): number {
+    return this.siteExpenseGroupsForClientSite(client).reduce((sum, group) => sum + group.spent, 0);
   }
 
-  setFilter(key: string, value: string) {
-    this.selectedFilters.update((filters) => ({ ...filters, [key]: value }));
-    this.openFilterKey.set("");
+  projectIdsForClient(client: Client): string[] {
+    return this.projectsForClient(client).map((project) => project.id);
   }
 
-  clearFilters() {
-    this.selectedFilters.set({});
-    this.searchText.set("");
-    this.openSelectKey.set("");
-    this.openFilterKey.set("");
+  materialsForClient(client: Client): MaterialRow[] {
+    const projectIds = new Set(this.projectIdsForClient(client));
+    return this.data.materials().filter((row) => projectIds.has(row.projectId));
   }
 
-  openRecordDialog() {
-    const row: TableRow = {};
-    for (const column of this.columnsForActive()) {
-      const options = this.selectOptions(this.activeModule(), column.key);
-      row[column.key] = options[0] ?? "";
-    }
-    this.draftRow.set(row);
-    this.recordDialogOpen.set(true);
+  materialsForClientSite(client: Client): MaterialRow[] {
+    const site = this.activeClientSite(client);
+    if (!site) return this.materialsForClient(client);
+    return this.materialsForClient(client).filter((row) => row.projectId === site.projectId && row.site === site.site);
   }
 
-  addInlineRow() {
-    const module = this.activeModule();
-    if (module === "clients") {
-      this.data.addClient({ name: "New Client", mobile: "", address: "", supervisor: "Unassigned" });
-      return;
-    }
-    this.data.addCustomRow(module, this.defaultRowFor(module));
+  filteredMaterialsForClientSite(client: Client): MaterialRow[] {
+    return this.filterRows(this.materialsForClientSite(client), (row) => [row.name, row.site, row.vendor, row.poNumber, this.projectName(row.projectId)], (row) => row.status);
   }
 
-  updateDraftField(key: string, value: string) {
-    this.draftRow.update((row) => ({ ...row, [key]: value }));
+  labourForClient(client: Client): LabourRow[] {
+    const projectIds = new Set(this.projectIdsForClient(client));
+    return this.data.labour().filter((row) => projectIds.has(row.projectId));
   }
 
-  saveRecord(event: Event) {
-    event.preventDefault();
-    const module = this.activeModule();
-    const row = { ...this.draftRow() };
-    if (module === "clients") {
-      const client = this.data.addClient({
-        name: String(row["clientName"] || "New Client").trim(),
-        mobile: String(row["mobile"] || "").trim(),
-        address: String(row["address"] || "").trim(),
-        supervisor: String(row["supervisor"] || "Unassigned").trim(),
-      });
-      const status = this.normalizeClientStatus(String(row["status"] || ""));
-      if (status !== "Active") this.data.updateClient(client.id, { status });
-    } else {
-      this.data.addCustomRow(module, row);
-    }
-    this.recordDialogOpen.set(false);
+  labourForClientSite(client: Client): LabourRow[] {
+    const site = this.activeClientSite(client);
+    if (!site) return this.labourForClient(client);
+    return this.labourForClient(client).filter((row) => row.projectId === site.projectId && row.site === site.site);
   }
 
-  openFieldDialog() {
-    this.newFieldLabel.set("");
-    this.fieldDialogOpen.set(true);
+  filteredLabourForClientSite(client: Client): LabourRow[] {
+    return this.filterLabourCategory(this.filterRows(this.labourForClientSite(client), (row) => [row.party, row.site, row.category, row.paymentMode, this.projectName(row.projectId)], (row) => row.status));
   }
 
-  saveField(event: Event) {
-    event.preventDefault();
-    const label = this.newFieldLabel().trim();
-    if (!label) return;
-    const module = this.activeModule();
-    this.data.addCustomField(module, label, this.columnsForActive());
-    this.fieldDialogOpen.set(false);
+  subcontractorsForClient(client: Client): Subcontractor[] {
+    const projectIds = new Set(this.projectIdsForClient(client));
+    return this.data.subcontractors().filter((row) => projectIds.has(row.projectId));
   }
 
-  updateCell(visibleIndex: number, key: string, value: string) {
-    if (this.isReadonlyColumn(key)) return;
-    const target = this.visibleRows()[visibleIndex];
-    if (!target) return;
-    this.updateRowCell(target, key, value);
+  subcontractorsForClientSite(client: Client): Subcontractor[] {
+    const site = this.activeClientSite(client);
+    if (!site) return this.subcontractorsForClient(client);
+    return this.subcontractorsForClient(client).filter((row) => row.projectId === site.projectId && row.site === site.site);
   }
 
-  updateRowCell(row: TableRow, key: string, value: string) {
-    if (this.isReadonlyColumn(key)) return;
-    const module = this.activeModule();
-    const trimmedValue = value.trim();
-
-    if (module === "clients") {
-      this.updateClientCell(row, key, trimmedValue);
-    }
-
-    const rowId = String(row["__rowId"] || "");
-    if (!rowId) return;
-    this.data.updateSharedRowCell(rowId, key, trimmedValue);
-    if (module === "labour" && key === "labourTypes") this.data.updateSharedRowCell(rowId, "notes", trimmedValue);
+  filteredSubcontractorsForClientSite(client: Client): Subcontractor[] {
+    return this.filterRows(this.subcontractorsForClientSite(client), (row) => [row.name, row.site, row.workPackage, row.supervisor, this.projectName(row.projectId)], (row) => row.paymentStatus);
   }
 
-  selectCellKey(row: TableRow, key: string): string {
-    return `${row["__rowId"] || row["clientId"] || "row"}:${key}`;
+  vendorsForClient(client: Client): Vendor[] {
+    const vendorNames = new Set(this.materialsForClient(client).map((row) => row.vendor));
+    return this.data.vendors().filter((vendor) => vendorNames.has(vendor.name) || this.materialsForClient(client).some((row) => row.name.toLowerCase().includes(vendor.materialType.toLowerCase())));
   }
 
-  isSelectMenuOpen(row: TableRow, key: string): boolean {
-    return this.openSelectKey() === this.selectCellKey(row, key);
+  vendorsForClientSite(client: Client): Vendor[] {
+    const rows = this.materialsForClientSite(client);
+    const vendorNames = new Set(rows.map((row) => row.vendor));
+    return this.data.vendors().filter((vendor) => vendorNames.has(vendor.name) || rows.some((row) => row.name.toLowerCase().includes(vendor.materialType.toLowerCase())));
   }
 
-  toggleSelectMenu(row: TableRow, key: string) {
-    const nextKey = this.selectCellKey(row, key);
-    this.openSelectKey.set(this.openSelectKey() === nextKey ? "" : nextKey);
-    this.selectCustomValue.set("");
+  filteredVendorsForClientSite(client: Client): Vendor[] {
+    return this.filterRows(this.vendorsForClientSite(client), (vendor) => [vendor.name, vendor.materialType, vendor.phone, vendor.address, vendor.gst], (vendor) => (this.materialsForClientSiteVendor(client, vendor).some((row) => row.status === "Pending") ? "Pending" : "Approved"));
   }
 
-  selectCellOptionForRow(row: TableRow, key: string, value: string) {
-    this.updateRowCell(row, key, value);
-    this.openSelectKey.set("");
-    this.selectCustomValue.set("");
+  materialsForClientVendor(client: Client, vendor: Vendor): MaterialRow[] {
+    return this.materialsForClient(client).filter((row) => row.vendor === vendor.name || row.name.toLowerCase().includes(vendor.materialType.toLowerCase()));
   }
 
-  saveCustomSelectOptionForRow(row: TableRow, key: string, value: string, event?: Event) {
-    event?.preventDefault();
-    const trimmedValue = value.trim();
-    if (!trimmedValue) return;
-    this.selectCellOptionForRow(row, key, trimmedValue);
+  materialsForClientSiteVendor(client: Client, vendor: Vendor): MaterialRow[] {
+    return this.materialsForClientSite(client).filter((row) => row.vendor === vendor.name || row.name.toLowerCase().includes(vendor.materialType.toLowerCase()));
   }
 
-  openLabourTypeDialog(row: TableRow) {
-    this.labourTypeRowId.set(String(row["__rowId"] || ""));
-    this.labourTypeName.set("");
-    this.labourTypeCount.set("1");
-    this.labourTypeDailyWage.set("");
-    this.labourTypeDialogOpen.set(true);
+  clientVendorPurchasedUnits(client: Client, vendor: Vendor): string {
+    const rows = this.materialsForClientVendor(client, vendor);
+    if (!rows.length) return "No supply";
+    const total = rows.reduce((sum, row) => sum + row.purchased, 0);
+    const units = [...new Set(rows.map((row) => row.unit))].join(", ");
+    return `${formatNumber(total)} ${units}`;
   }
 
-  closeLabourTypeDialog() {
-    this.labourTypeDialogOpen.set(false);
-    this.labourTypeRowId.set("");
+  clientVendorMaterialNames(client: Client, vendor: Vendor): string {
+    const names = [...new Set(this.materialsForClientVendor(client, vendor).map((row) => row.name))];
+    return names.join(", ") || "No material";
   }
 
-  updateLabourTypeName(value: string) {
-    this.labourTypeName.set(value);
-    const match = this.labourTypeDialogOptions().find((option) => option.toLowerCase() === value.trim().toLowerCase());
-    if (match) this.applyLabourTypeSuggestion(match);
+  clientSiteVendorPurchasedUnits(client: Client, vendor: Vendor): string {
+    const rows = this.materialsForClientSiteVendor(client, vendor);
+    if (!rows.length) return "No supply";
+    const total = rows.reduce((sum, row) => sum + row.purchased, 0);
+    const units = [...new Set(rows.map((row) => row.unit))].join(", ");
+    return `${formatNumber(total)} ${units}`;
   }
 
-  selectLabourTypeSuggestion(option: string) {
-    this.labourTypeName.set(option);
-    this.applyLabourTypeSuggestion(option);
+  clientSiteVendorMaterialNames(client: Client, vendor: Vendor): string {
+    const names = [...new Set(this.materialsForClientSiteVendor(client, vendor).map((row) => row.name))];
+    return names.join(", ") || "No material";
   }
 
-  saveLabourType(event: Event) {
-    event.preventDefault();
-    const rowId = this.labourTypeRowId();
-    const type = this.labourTypeName().trim();
-    const count = Math.max(0, Math.round(this.moneyNumber(this.labourTypeCount())));
-    const dailyWage = Math.max(0, this.moneyNumber(this.labourTypeDailyWage()));
-    if (!rowId || !type || !count) return;
-    const row = this.rowsFor("labour").find((entry) => String(entry["__rowId"] || "") === rowId);
-    const nextTypes = this.mergeLabourType(String(row?.["labourTypes"] || ""), type, count, dailyWage);
-    const wageField = this.ensureLabourWageField(type);
-    this.data.updateSharedRowCell(rowId, "labourTypes", nextTypes);
-    this.data.updateSharedRowCell(rowId, "notes", nextTypes);
-    if (dailyWage) this.data.updateSharedRowCell(rowId, wageField.key, formatMoney(dailyWage));
-    this.closeLabourTypeDialog();
+  supervisorsForClient(client: Client): Supervisor[] {
+    const supervisorNames = new Set(this.projectsForClient(client).map((project) => project.supervisor));
+    return this.data.supervisors().filter((supervisor) => supervisorNames.has(supervisor.name));
   }
 
-  labourTypeCards(row: TableRow): Array<{ type: string; count: number; wage: number }> {
-    return this.labourTypeEntriesForRow(row).filter((entry) => entry.count > 0);
+  supervisorsForClientSite(client: Client): Supervisor[] {
+    const site = this.activeClientSite(client);
+    if (!site) return this.supervisorsForClient(client);
+    const project = this.projectById(site.projectId);
+    return this.data.supervisors().filter((supervisor) => supervisor.name === project?.supervisor || (supervisor.assignedProject === project?.name && supervisor.assignedSite.includes(site.site)));
   }
 
-  labourTypeDialogOptions(): string[] {
-    const row = this.labourTypeDialogRow();
-    return row ? this.labourTypeOptionsForRow(row) : [];
+  filteredSupervisorsForClientSite(client: Client): Supervisor[] {
+    return this.filterRows(this.supervisorsForClientSite(client), (row) => [row.name, row.role, row.phone, row.assignedProject, row.assignedSite], (row) => row.status);
   }
 
-  private applyLabourTypeSuggestion(labourType: string) {
-    const row = this.labourTypeDialogRow();
-    const wage = row ? this.suggestedDailyWageForLabourType(row, labourType) : 0;
-    this.labourTypeDailyWage.set(wage ? String(wage) : "");
+  siteExpenseGroupsForClient(client: Client): SiteExpenseGroup[] {
+    const projectIds = new Set(this.projectIdsForClient(client));
+    return this.siteExpenseGroups().filter((group) => projectIds.has(group.projectId));
   }
 
-  private labourTypeDialogRow(): TableRow | undefined {
-    const rowId = this.labourTypeRowId();
-    return this.rowsFor("labour").find((entry) => String(entry["__rowId"] || "") === rowId);
+  siteExpenseGroupsForClientSite(client: Client): SiteExpenseGroup[] {
+    const site = this.activeClientSite(client);
+    if (!site) return this.siteExpenseGroupsForClient(client);
+    return this.siteExpenseGroupsForClient(client).filter((group) => group.projectId === site.projectId && group.site === site.site);
   }
 
-  removeLabourType(row: TableRow, labourType: string) {
-    const rowId = String(row["__rowId"] || "");
-    if (!rowId) return;
-    const remaining = this.labourTypeEntriesForRow(row).filter((entry) => entry.type.toLowerCase() !== labourType.toLowerCase());
-    const nextTypes = remaining.map((entry) => `${entry.type}: ${entry.count}`).join(", ");
-    const nextStaffCount = remaining.reduce((sum, entry) => sum + entry.count, 0);
-    this.data.updateSharedRowCell(rowId, "labourTypes", nextTypes);
-    this.data.updateSharedRowCell(rowId, "notes", nextTypes);
-    this.data.updateSharedRowCell(rowId, "staffCount", nextStaffCount);
-    const wageField = this.data.customFieldsFor("labour").find((field) => field.label.toLowerCase() === `${this.titleCase(labourType)} daily wage`.toLowerCase());
-    if (wageField) this.data.updateSharedRowCell(rowId, wageField.key, "");
+  filteredSiteExpenseGroupsForClientSite(client: Client): SiteExpenseGroup[] {
+    return this.filterRows(this.siteExpenseGroupsForClientSite(client), (row) => [row.site, row.projectName, row.supervisor], (row) => this.expenseRisk(row));
   }
 
-  deleteRow(row: TableRow) {
-    const module = this.activeModule();
-    const rowId = String(row["__rowId"] || "");
-    if (module === "clients") {
-      this.data.deleteClient(String(row["clientId"] || ""));
-      return;
-    }
-    this.data.deleteSharedRow(rowId);
+  clientReports(client: Client): Array<{ name: string; scope: string; detail: string; owner: string; status: string }> {
+    const summary = this.clientSummary(client);
+    return [
+      { name: "Client Project Summary", scope: client.name, detail: `${summary.projectCount} projects / ${summary.activeSites} active sites`, owner: "Admin", status: "Ready" },
+      { name: "Material Consumption", scope: "Client sites", detail: `${this.materialsForClient(client).length} material rows`, owner: "Project Manager", status: "Ready" },
+      { name: "Labour Wage Report", scope: "Client projects", detail: `${this.labourForClient(client).length} labour rows`, owner: "Accountant", status: "Ready" },
+      { name: "Site Expense Ledger", scope: "Client sites", detail: formatMoney(summary.siteExpense), owner: "Admin", status: "Ready" },
+      { name: "Receivable Statement", scope: client.name, detail: `${formatMoney(summary.pending)} pending`, owner: "Accountant", status: "Ready" },
+    ];
   }
 
-  exportExcel() {
-    const columns = this.columnsForActive();
-    const rows = this.visibleRows();
-    const html = [
-      "<table><thead><tr>",
-      ...columns.map((column) => `<th>${this.escapeHtml(column.label)}</th>`),
-      "</tr></thead><tbody>",
-      ...rows.map((row) => `<tr>${columns.map((column) => `<td>${this.escapeHtml(String(row[column.key] ?? ""))}</td>`).join("")}</tr>`),
-      "</tbody></table>",
-    ].join("");
-    const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `annai-${this.activeModule()}-${new Date().toISOString().slice(0, 10)}.xls`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+  firstStartDate(client: Client): string {
+    const starts = this.projectsForClient(client)
+      .map((project) => project.startDate)
+      .filter(Boolean)
+      .sort();
+    return starts[0] ?? "Not started";
   }
 
-  exportPdf() {
-    const module = this.activeModule();
-    const columns = this.reportColumns(module);
-    const rows = this.reportRows(module, this.visibleRows());
-    const summary = module === "labour" ? this.labourSummaryHtml(rows) : module === "expenses" ? this.expenseSummaryHtml(rows) : "";
-    this.openPrintableReport({
-      title: module === "labour" ? "Labour Attendance Report" : module === "expenses" ? "Expense Ledger Report" : this.activeConfig().title,
-      subtitle: "Annai Golden Builders - Universal Dashboard",
-      columns,
-      rows,
-      summary,
-    });
+  materialsForVendor(vendor: Vendor): MaterialRow[] {
+    return this.data.materials().filter((row) => row.vendor === vendor.name || row.name.toLowerCase().includes(vendor.materialType.toLowerCase()));
   }
 
-  openClients() {
-    void this.router.navigate(["/clients"]);
+  materialRowsFor(material: MaterialRow): MaterialRow[] {
+    const name = material.name.trim().toLowerCase();
+    return this.data.materials().filter((row) => row.name.trim().toLowerCase() === name);
   }
 
-  private buildRows(): Record<DashboardModule, TableRow[]> {
-    const projectById = (projectId: string) => this.data.projectById(projectId);
-    const projectName = (projectId: string) => projectById(projectId)?.name ?? projectId;
-    const clientName = (projectId: string) => projectById(projectId)?.client ?? "";
-    const clientId = (projectId: string) => this.data.clients().find((client) => client.projectIds.includes(projectId) || client.name === clientName(projectId))?.id ?? "";
-
-    const materials = this.data.materials().map((row) => ({
-      __rowId: `material:${row.id}`,
-      __projectId: row.projectId,
-      client: clientName(row.projectId),
-      project: projectName(row.projectId),
-      site: row.site,
-      materialName: row.name,
-      unit: row.unit,
-      requestedQuantity: formatNumber(row.requested),
-      approvedQuantity: formatNumber(row.approved),
-      vendor: row.vendor,
-      poNumber: row.poNumber,
-      remainingStock: `${formatNumber(row.purchased - row.consumed)} ${row.unit}`,
-      status: row.status,
-    }));
-
-    const clients = this.data.clients().map((client) => {
-      const summary = this.data.clientSummary(client);
-      return {
-        __rowId: `client:${client.id}`,
-        clientId: client.id,
-        clientName: client.name,
-        mobile: client.mobile,
-        address: client.address,
-        projectCount: summary.projectCount,
-        activeSites: summary.activeSites,
-        totalProjectValue: formatMoney(summary.totalValue),
-        amountReceived: formatMoney(summary.received),
-        pendingBalance: formatMoney(summary.pending),
-        supervisor: client.supervisor,
-        status: client.status,
-      };
-    });
-
-    const labour = this.data.labour().map((row) => ({
-      __rowId: `labour:${row.id}`,
-      __projectId: row.projectId,
-      client: clientName(row.projectId),
-      clientId: clientId(row.projectId),
-      projectId: row.projectId,
-      project: projectName(row.projectId),
-      site: row.site,
-      attendanceDate: "2026-06-05",
-      staffName: row.party,
-      dailyWage: row.dailyWage,
-      labourTypes: this.labourTypesFromRow(row),
-      staffCount: row.presentCount,
-      attendance: "Present",
-      shift: this.normalizeShift(row.shift),
-      overtime: `${row.overtime} hrs`,
-      lateFine: formatMoney(row.lateFine),
-      presentUnits: row.presentDays * row.presentCount,
-      paymentMode: row.paymentMode,
-      status: row.status,
-    }));
-
-    const expenses = this.data.expenses().filter((row) => row.type === "Site Expense").map((row) => ({
-      __rowId: `expense:${row.id}`,
-      __projectId: row.projectId,
-      client: clientName(row.projectId),
-      project: projectName(row.projectId),
-      site: row.site,
-      expenseDate: row.date,
-      transactionType: "Site Expense",
-      description: row.description,
-      amount: formatMoney(-row.spent),
-      runningBalance: formatMoney(0),
-      supervisor: row.supervisor,
-      cashIssued: formatMoney(row.received),
-      reference: row.reference,
-      approvalStatus: row.status,
-    }));
-
-    const generalExpenses = this.data.expenses().filter((row) => row.type === "General Expense").map((row) => ({
-      __rowId: `general-expense:${row.id}`,
-      __projectId: "",
-      expenseDate: row.date,
-      department: "Head Office",
-      description: row.description,
-      category: "Office Expense",
-      amount: formatMoney(row.spent),
-      paidBy: row.supervisor,
-      reference: row.reference,
-      approvalStatus: row.status,
-    }));
-
-    const payments = this.data.payments().map((row) => ({
-      __rowId: `payment:${row.id}`,
-      __projectId: row.projectId,
-      client: clientName(row.projectId),
-      project: projectName(row.projectId),
-      paymentDate: row.date,
-      amount: formatMoney(row.amount),
-      mode: row.mode,
-      transactionReference: row.reference,
-      receiptNumber: row.receipt,
-      collectedBy: row.collectedBy,
-      approvalStatus: row.status,
-    }));
-
-    const vendors = this.data.vendors().map((vendor) => ({
-      __rowId: `vendor:${vendor.id}`,
-      vendorId: vendor.id,
-      vendorName: vendor.name,
-      materialType: vendor.materialType,
-      materialsBought: this.materialPurchaseSummaryForVendor(vendor.name),
-      phoneNumber: vendor.phone,
-      address: vendor.address,
-      gstNumber: vendor.gst,
-    }));
-
-    const supervisors = this.data.supervisors().map((supervisor) => ({
-      __rowId: `supervisor:${supervisor.id}`,
-      supervisorId: supervisor.id,
-      supervisorName: supervisor.name,
-      phoneNumber: supervisor.phone,
-      role: supervisor.role,
-      assignedProject: supervisor.assignedProject,
-      assignedSite: supervisor.assignedSite,
-      cashLimit: formatMoney(supervisor.cashLimit),
-      activeAdvances: formatMoney(supervisor.activeAdvances),
-      approvalAuthority: supervisor.approvalAuthority,
-      status: supervisor.status,
-    }));
-
-    const subcontractors = this.data.subcontractors().map((subcontractor) => {
-      const project = projectById(subcontractor.projectId);
-      return {
-        __rowId: `subcontractor:${subcontractor.id}`,
-        __projectId: subcontractor.projectId,
-        subcontractId: subcontractor.id,
-        client: project?.client ?? "",
-        project: project?.name ?? subcontractor.projectId,
-        site: subcontractor.site,
-        subcontractorName: subcontractor.name,
-        workPackage: subcontractor.workPackage,
-        contractValue: formatMoney(subcontractor.contractValue),
-        advancePaid: formatMoney(subcontractor.advancePaid),
-        balance: formatMoney(subcontractor.contractValue - subcontractor.advancePaid),
-        startDate: subcontractor.startDate,
-        dueDate: subcontractor.dueDate,
-        supervisor: subcontractor.supervisor,
-        approvalStatus: subcontractor.approvalStatus,
-        paymentStatus: subcontractor.paymentStatus,
-      };
-    });
-
-    const reports = [
-      ["Financial", "Payment Collection Report", "All projects", "Accountant", "Excel", "Ready"],
-      ["Financial", "Expense Report", "All sites", "Admin", "Excel", "Ready"],
-      ["Labour", "Attendance Report", "All labour", "Project Manager", "Excel", "Ready"],
-      ["Material", "Inventory Report", "All materials", "Project Manager", "Excel", "Ready"],
-      ["Vendor", "Vendor Purchase Report", "All vendors", "Admin", "Excel", "Ready"],
-      ["Subcontract", "Subcontractor Ledger", "All subcontractors", "Project Manager", "Excel", "Ready"],
-      ["Project", "Project Summary", "All clients", "Admin", "Excel", "Ready"],
-    ].map(([category, reportName, scope, owner, exportFormat, status], index) => ({
-      __rowId: `report:${index}`,
-      category,
-      reportName,
-      scope,
-      owner,
-      exportFormat,
-      status,
-    }));
-
-    return { materials, clients, labour, expenses, generalExpenses, payments, vendors, supervisors, subcontractors, reports };
+  materialTotal(material: MaterialRow, key: "requested" | "approved" | "purchased" | "consumed"): number {
+    return this.materialRowsFor(material).reduce((sum, row) => sum + row[key], 0);
   }
 
-  private rowsFor(module: DashboardModule): TableRow[] {
-    return this.data.tableRowsFor(module, this.buildRows()[module]);
+  materialNeeded(material: MaterialRow): number {
+    return Math.max(material.requested - material.purchased, 0);
   }
 
-  selectOptions(module: DashboardModule, key: string): string[] {
-    if (key === "site" || key === "assignedSite") return this.siteOptionsForModule(module);
-    if (key === "vendor" || key === "vendorName") return this.vendorNameOptions();
-    if (key === "project") return this.projectNameOptions();
-    if (key === "projectId") return this.projectIdOptions();
-    if (key === "client" || key === "clientName") return this.clientNameOptions();
-    if (key === "clientId") return this.clientIdOptions();
-    if (key === "address") return this.clientAddressOptions();
-    if (key === "supervisor" || key === "supervisorName" || key === "collectedBy" || key === "paidBy") return this.supervisorNameOptions();
-    if (module === "labour" && key === "staffName") return this.staffNameOptions();
-    if (module === "expenses" && key === "transactionType") {
-      return [
-        "Site Expense",
-        "Material Purchase",
-        "Supervisor Expense",
-        "Cash Added",
-        "Cash Issued to Supervisor",
-        "Payment Received",
-        "Payment Received from Annai Golden Builders Pvt Ltd",
-        "Refund / Return",
-        "Adjustment",
-      ];
-    }
-    if (module === "labour" && key === "attendance") return ["Present", "Absent"];
-    if (key === "approvalStatus") return ["Pending", "Approved", "Declined"];
-    if (key === "status") {
-      if (module === "clients") return ["Active", "On Hold", "Completed"];
-      if (module === "supervisors") return ["Active", "On Leave", "Inactive"];
-      if (module === "reports") return ["Ready", "Scheduled", "Archived"];
-      return ["Pending", "Approved", "Declined"];
-    }
-    if (key === "paymentMode") return ["Cash", "NEFT", "UPI", "Bank Transfer", "Cheque"];
-    if (key === "paymentStatus") return ["Not Started", "Part Paid", "Paid"];
-    return [];
+  materialNeededTotal(material: MaterialRow): number {
+    return this.materialRowsFor(material).reduce((sum, row) => sum + this.materialNeeded(row), 0);
   }
 
-  allowsCustomOption(module: DashboardModule, key: string): boolean {
-    if (key === "site" || key === "approvalStatus" || key === "status" || key === "paymentStatus" || key === "attendance") return false;
-    return this.selectOptions(module, key).length > 0;
+  materialUtilization(material: MaterialRow): number {
+    return material.purchased ? Math.round((material.consumed / material.purchased) * 100) : 0;
   }
 
-  selectOptionIcon(option: string): "approve" | "decline" | "" {
-    const normalized = option.toLowerCase();
-    if (normalized === "approve" || normalized === "approved" || normalized === "active" || normalized === "ready") return "approve";
-    if (normalized === "decline" || normalized === "declined" || normalized === "rejected" || normalized === "inactive") return "decline";
-    return "";
+  materialStockRisk(material: MaterialRow): string {
+    const remaining = material.purchased - material.consumed;
+    if (material.status === "Pending") return "Approval pending";
+    if (remaining <= 0) return "Reorder required";
+    if (material.purchased && remaining / material.purchased < 0.25) return "Low stock";
+    return "Healthy";
   }
 
-  private defaultRowFor(module: DashboardModule): TableRow {
+  vendorPurchasedUnits(vendor: Vendor): string {
+    const rows = this.materialsForVendor(vendor);
+    if (!rows.length) return "No supply";
+    const total = rows.reduce((sum, row) => sum + row.purchased, 0);
+    const units = [...new Set(rows.map((row) => row.unit))].join(", ");
+    return `${formatNumber(total)} ${units}`;
+  }
+
+  labourWeeklyPay(row: LabourRow): number {
+    return row.dailyWage * row.presentDays * row.presentCount + row.overtime * 175 - row.lateFine;
+  }
+
+  labourRowsForParty(row: LabourRow): LabourRow[] {
+    const party = row.party.trim().toLowerCase();
+    return this.data.labour().filter((item) => item.party.trim().toLowerCase() === party);
+  }
+
+  subcontractorsForProject(projectId: string): Subcontractor[] {
+    return this.data.subcontractorsForProject(projectId);
+  }
+
+  projectsForSupervisor(supervisor: Supervisor): Project[] {
+    return this.data.projects().filter((project) => project.supervisor === supervisor.name || project.name === supervisor.assignedProject);
+  }
+
+  subcontractBalancePercent(row: Subcontractor): number {
+    return row.contractValue ? Math.round(((row.contractValue - row.advancePaid) / row.contractValue) * 100) : 0;
+  }
+
+  supervisorCashUtilization(supervisor: Supervisor): number {
+    return supervisor.cashLimit ? Math.round((supervisor.activeAdvances / supervisor.cashLimit) * 100) : 0;
+  }
+
+  supervisorCashRisk(supervisor: Supervisor): string {
+    const utilization = this.supervisorCashUtilization(supervisor);
+    if (utilization >= 90) return "Near cash limit";
+    if (utilization >= 60) return "Monitor advances";
+    return "Within limit";
+  }
+
+  expenseSpendRatio(group: SiteExpenseGroup): number {
+    return group.received ? Math.round((group.spent / group.received) * 100) : group.spent ? 100 : 0;
+  }
+
+  expenseRisk(group: SiteExpenseGroup): string {
+    if (group.balance < 0) return "Overspent";
+    if (this.expenseSpendRatio(group) >= 85) return "Low balance";
+    return "Within balance";
+  }
+
+  projectName(projectId: string): string {
+    return this.projectById(projectId)?.name ?? projectId;
+  }
+
+  projectStart(projectId: string): string {
+    return this.projectById(projectId)?.startDate ?? "Not set";
+  }
+
+  pieBackground(group: SiteExpenseGroup): string {
+    const total = Math.max(group.received, group.spent, 1);
+    const spentDegrees = Math.min(360, Math.round((group.spent / total) * 360));
+    return `conic-gradient(#be123c 0deg ${spentDegrees}deg, #16a34a ${spentDegrees}deg 360deg)`;
+  }
+
+  openClient(client: Client) {
+    const project = this.data.firstProjectForClient(client);
+    if (project) void this.router.navigate(["/clients", client.id, "projects", project.id, "materials"]);
+    else void this.router.navigate(["/clients", client.id]);
+  }
+
+  openProject(project: Project) {
+    const client = this.data.clients().find((row) => row.projectIds.includes(project.id));
+    if (client) void this.router.navigate(["/clients", client.id, "projects", project.id, "materials"]);
+  }
+
+  saveReportsAsPdf() {
+    const rows = this.reports();
+    const html = `
+      <html><head><title>Annai Builders Reports</title><style>
+      body{font-family:Arial,sans-serif;padding:24px;color:#172033} table{width:100%;border-collapse:collapse}
+      th,td{border:1px solid #d8e0ea;padding:8px;text-align:left} th{background:#eef3f8}
+      </style></head><body><h1>Report Register</h1><table><thead><tr><th>Category</th><th>Report</th><th>Scope</th><th>Owner</th><th>Format</th><th>Status</th></tr></thead>
+      <tbody>${rows.map((row) => `<tr><td>${row.category}</td><td>${row.name}</td><td>${row.scope}</td><td>${row.owner}</td><td>${row.format}</td><td>${row.status}</td></tr>`).join("")}</tbody></table></body></html>`;
+    const printWindow = window.open("", "_blank", "width=1100,height=760");
+    if (!printWindow) return;
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  }
+
+  exportReportsToExcel() {
+    const rows = this.reports();
+    const table = `<table><thead><tr><th>Category</th><th>Report</th><th>Scope</th><th>Owner</th><th>Format</th><th>Status</th></tr></thead><tbody>${rows
+      .map((row) => `<tr><td>${row.category}</td><td>${row.name}</td><td>${row.scope}</td><td>${row.owner}</td><td>${row.format}</td><td>${row.status}</td></tr>`)
+      .join("")}</tbody></table>`;
+    this.downloadFile("annai-report-register.xls", "application/vnd.ms-excel", table);
+  }
+
+  private fieldsFor(module: EditableModule): FormField[] {
+    const fields: Record<EditableModule, FormField[]> = {
+      clients: [
+        { key: "name", label: "Client Name" },
+        { key: "mobile", label: "Mobile" },
+        { key: "address", label: "Address" },
+        { key: "supervisor", label: "Supervisor" },
+        { key: "status", label: "Status" },
+      ],
+      materials: [
+        { key: "projectId", label: "Project ID" },
+        { key: "site", label: "Site" },
+        { key: "name", label: "Material" },
+        { key: "unit", label: "Unit" },
+        { key: "requested", label: "Requested", type: "number" },
+        { key: "approved", label: "Approved", type: "number" },
+        { key: "purchased", label: "Purchased", type: "number" },
+        { key: "consumed", label: "Used", type: "number" },
+        { key: "vendor", label: "Vendor" },
+        { key: "poNumber", label: "PO Number" },
+        { key: "status", label: "Status" },
+      ],
+      vendors: [
+        { key: "name", label: "Vendor Name" },
+        { key: "materialType", label: "Material Type" },
+        { key: "phone", label: "Phone" },
+        { key: "address", label: "Address" },
+        { key: "gst", label: "GST" },
+      ],
+      subcontract: [
+        { key: "projectId", label: "Project ID" },
+        { key: "site", label: "Site" },
+        { key: "name", label: "Subcontractor" },
+        { key: "workPackage", label: "Work Package" },
+        { key: "contractValue", label: "Contract Value", type: "number" },
+        { key: "advancePaid", label: "Advance Paid", type: "number" },
+        { key: "startDate", label: "Start Date", type: "date" },
+        { key: "dueDate", label: "Due Date", type: "date" },
+        { key: "supervisor", label: "Supervisor" },
+        { key: "approvalStatus", label: "Approval Status" },
+        { key: "paymentStatus", label: "Payment Status" },
+      ],
+      labours: [
+        { key: "projectId", label: "Project ID" },
+        { key: "site", label: "Site" },
+        { key: "party", label: "Labour Name / Party" },
+        { key: "category", label: "Category" },
+        { key: "dailyWage", label: "Daily Wage", type: "number" },
+        { key: "presentDays", label: "Present Days", type: "number" },
+        { key: "absentDays", label: "Absent Days", type: "number" },
+        { key: "presentCount", label: "Present Count", type: "number" },
+        { key: "overtime", label: "Overtime", type: "number" },
+        { key: "lateFine", label: "Late Fine", type: "number" },
+        { key: "shift", label: "Shift" },
+        { key: "paymentMode", label: "Payment Mode" },
+        { key: "status", label: "Status" },
+        { key: "notes", label: "Notes" },
+      ],
+      supervisors: [
+        { key: "name", label: "Supervisor Name" },
+        { key: "phone", label: "Phone" },
+        { key: "role", label: "Role" },
+        { key: "assignedProject", label: "Assigned Project" },
+        { key: "assignedSite", label: "Assigned Site" },
+        { key: "cashLimit", label: "Cash Limit", type: "number" },
+        { key: "activeAdvances", label: "Active Advances", type: "number" },
+        { key: "approvalAuthority", label: "Approval Authority" },
+        { key: "status", label: "Status" },
+      ],
+      expenses: [
+        { key: "projectId", label: "Project ID" },
+        { key: "site", label: "Site" },
+        { key: "supervisor", label: "Supervisor" },
+        { key: "date", label: "Date", type: "date" },
+        { key: "description", label: "Description" },
+        { key: "type", label: "Type" },
+        { key: "received", label: "Received", type: "number" },
+        { key: "spent", label: "Spent", type: "number" },
+        { key: "reference", label: "Reference" },
+        { key: "status", label: "Status" },
+      ],
+      payments: [
+        { key: "projectId", label: "Project ID" },
+        { key: "date", label: "Date", type: "date" },
+        { key: "amount", label: "Amount", type: "number" },
+        { key: "mode", label: "Mode" },
+        { key: "receipt", label: "Receipt" },
+        { key: "reference", label: "Transaction ID" },
+        { key: "collectedBy", label: "Collected By" },
+        { key: "status", label: "Status" },
+      ],
+    };
+    return fields[module];
+  }
+
+  private defaultDraft(module: EditableModule): Record<string, string> {
+    const client = this.selectedClient();
+    const site = client ? this.activeClientSite(client) : null;
+    const project = site ? this.projectById(site.projectId) : this.data.projects()[0];
     const today = new Date().toISOString().slice(0, 10);
-    const defaults: Record<DashboardModule, TableRow> = {
-      materials: {
-        client: "",
-        project: "",
-        site: "",
-        materialName: "",
-        unit: "",
-        requestedQuantity: "",
-        approvedQuantity: "",
-        vendor: "",
-        poNumber: "",
-        remainingStock: "",
-        status: "Pending",
-      },
-      clients: {},
-      labour: {
-        client: "",
-        clientId: "",
-        projectId: "",
-        site: "",
-        attendanceDate: today,
-        staffName: this.staffNameOptions()[0] ?? "",
-        labourTypes: "Mason: 1",
-        staffCount: "1",
-        attendance: "Present",
-        shift: "1",
-        overtime: "0",
-        lateFine: "0",
-        presentUnits: 1,
-        paymentMode: "Cash",
-        status: "Pending",
-      },
-      expenses: {
-        client: "",
-        project: "",
-        site: "",
-        expenseDate: today,
-        transactionType: "Site Expense",
-        description: "",
-        amount: "0",
-        runningBalance: formatMoney(0),
-        supervisor: "",
-        reference: "",
-        approvalStatus: "Pending",
-      },
-      generalExpenses: {
-        expenseDate: today,
-        department: "Head Office",
-        description: "",
-        category: "Office Expense",
-        amount: "0",
-        paidBy: "",
-        reference: "",
-        approvalStatus: "Pending",
-      },
-      payments: {
-        client: "",
-        project: "",
-        paymentDate: today,
-        amount: "0",
-        mode: "Cash",
-        transactionReference: "",
-        receiptNumber: "",
-        collectedBy: "",
-        approvalStatus: "Pending",
-      },
-      vendors: {
-        vendorName: "",
-        materialType: "",
-        materialsBought: formatNumber(0),
-        phoneNumber: "",
-        address: "",
-        gstNumber: "",
-      },
-      supervisors: {
-        supervisorName: "",
-        phoneNumber: "",
-        role: "",
-        assignedProject: "",
-        assignedSite: "",
-        cashLimit: "0",
-        activeAdvances: "0",
-        approvalAuthority: "",
-        status: "Active",
-      },
-      subcontractors: {
-        client: "",
-        project: "",
-        site: "",
-        subcontractorName: "",
-        workPackage: "",
-        contractValue: "0",
-        advancePaid: "0",
-        balance: formatMoney(0),
-        startDate: today,
-        dueDate: today,
-        supervisor: "",
-        approvalStatus: "Pending",
-        paymentStatus: "Not Started",
-      },
-      reports: {
-        category: "",
-        reportName: "",
-        scope: "",
-        owner: "",
-        exportFormat: "PDF / Excel",
-        status: "Ready",
-      },
+    const base: Record<string, string> = { projectId: project?.id ?? "AB-1024", site: site?.site ?? project?.sites[0] ?? "Main Site", status: "Approved" };
+    const defaults: Record<EditableModule, Record<string, string>> = {
+      clients: { name: "", mobile: "", address: "", supervisor: project?.supervisor ?? "", status: "Active" },
+      materials: { ...base, name: "", unit: "Nos", requested: "0", approved: "0", purchased: "0", consumed: "0", vendor: "", poNumber: "Pending" },
+      vendors: { name: "", materialType: "", phone: "", address: "", gst: "" },
+      subcontract: { ...base, name: "", workPackage: "", contractValue: "0", advancePaid: "0", startDate: today, dueDate: today, supervisor: project?.supervisor ?? "", approvalStatus: "Approved", paymentStatus: "Part Paid" },
+      labours: { ...base, party: "", category: "", dailyWage: "0", presentDays: "0", absentDays: "0", presentCount: "0", overtime: "0", lateFine: "0", shift: "Day", paymentMode: "NEFT", notes: "" },
+      supervisors: { name: "", phone: "", role: "Site Supervisor", assignedProject: project?.name ?? "", assignedSite: site?.site ?? "", cashLimit: "0", activeAdvances: "0", approvalAuthority: "Material, Labour, Expense", status: "Active" },
+      expenses: { ...base, supervisor: project?.supervisor ?? "", date: today, description: "", type: site ? "Site Expense" : "General Expense", received: "0", spent: "0", reference: "", status: "Approved" },
+      payments: { projectId: project?.id ?? "AB-1024", date: today, amount: "0", mode: "NEFT", receipt: "", reference: "", collectedBy: "Admin", status: "Approved" },
     };
     return defaults[module];
   }
 
-  private withComputedRows(module: DashboardModule, rows: TableRow[]): TableRow[] {
-    const normalizedRows = rows.map((row) => this.withNormalizedApprovalStatus(row));
-    if (module === "expenses") return this.withExpenseBalances(normalizedRows);
-    if (module === "labour") return normalizedRows.map((row) => this.withLabourPayable(row));
-    if (module === "subcontractors") {
-      return normalizedRows.map((row) => ({
-        ...row,
-        balance: formatMoney(this.moneyNumber(row["contractValue"]) - this.moneyNumber(row["advancePaid"])),
-      }));
+  private rowToDraft(module: EditableModule, row: Record<string, unknown>): Record<string, string> {
+    const draft = this.defaultDraft(module);
+    for (const field of this.fieldsFor(module)) draft[field.key] = String(row[field.key] ?? draft[field.key] ?? "");
+    return draft;
+  }
+
+  private addRecord(module: EditableModule, draft: Record<string, string>) {
+    const id = this.nextId(module);
+    if (module === "clients") {
+      const client = this.data.addClient({ name: draft["name"], mobile: draft["mobile"], address: draft["address"], supervisor: draft["supervisor"] });
+      this.data.updateClient(client.id, { status: draft["status"] as Client["status"] });
+      return;
     }
-    return normalizedRows;
+    const record = this.buildRecord(module, id, draft);
+    this.updateSignal(module, (rows) => [record, ...rows]);
   }
 
-  private withNormalizedApprovalStatus(row: TableRow): TableRow {
-    return {
-      ...row,
-      ...(row["status"] ? { status: this.normalizeApprovalStatus(row["status"]) } : {}),
-      ...(row["approvalStatus"] ? { approvalStatus: this.normalizeApprovalStatus(row["approvalStatus"]) } : {}),
+  private updateRecord(module: EditableModule, draft: Record<string, string>) {
+    const id = this.editingId();
+    if (!id) return;
+    if (module === "clients") {
+      this.data.updateClient(id, {
+        name: draft["name"],
+        mobile: draft["mobile"],
+        address: draft["address"],
+        supervisor: draft["supervisor"],
+        status: draft["status"] as Client["status"],
+      });
+      return;
+    }
+    const record = this.buildRecord(module, id, draft);
+    this.updateSignal(module, (rows) => rows.map((row) => (String((row as { id: string }).id) === id ? record : row)));
+  }
+
+  private buildRecord(module: EditableModule, id: string, draft: Record<string, string>): any {
+    const numberValue = (key: string) => Number(draft[key] || 0);
+    const builders: Record<EditableModule, () => any> = {
+      clients: () => draft,
+      materials: () => ({ id, projectId: draft["projectId"], site: draft["site"], name: draft["name"], unit: draft["unit"], requested: numberValue("requested"), approved: numberValue("approved"), purchased: numberValue("purchased"), consumed: numberValue("consumed"), vendor: draft["vendor"], poNumber: draft["poNumber"], status: draft["status"] }),
+      vendors: () => ({ id, name: draft["name"], materialType: draft["materialType"], phone: draft["phone"], address: draft["address"], gst: draft["gst"] }),
+      subcontract: () => ({ id, projectId: draft["projectId"], site: draft["site"], name: draft["name"], workPackage: draft["workPackage"], contractValue: numberValue("contractValue"), advancePaid: numberValue("advancePaid"), startDate: draft["startDate"], dueDate: draft["dueDate"], supervisor: draft["supervisor"], approvalStatus: draft["approvalStatus"], paymentStatus: draft["paymentStatus"] }),
+      labours: () => ({ id, projectId: draft["projectId"], site: draft["site"], party: draft["party"], category: draft["category"], dailyWage: numberValue("dailyWage"), presentDays: numberValue("presentDays"), absentDays: numberValue("absentDays"), presentCount: numberValue("presentCount"), overtime: numberValue("overtime"), lateFine: numberValue("lateFine"), shift: draft["shift"], notes: draft["notes"], paymentMode: draft["paymentMode"], status: draft["status"] }),
+      supervisors: () => ({ id, name: draft["name"], phone: draft["phone"], role: draft["role"], assignedProject: draft["assignedProject"], assignedSite: draft["assignedSite"], cashLimit: numberValue("cashLimit"), activeAdvances: numberValue("activeAdvances"), approvalAuthority: draft["approvalAuthority"], status: draft["status"] }),
+      expenses: () => ({ id, projectId: draft["projectId"], site: draft["site"], supervisor: draft["supervisor"], date: draft["date"], description: draft["description"], type: draft["type"], received: numberValue("received"), spent: numberValue("spent"), reference: draft["reference"], status: draft["status"] }),
+      payments: () => ({ id, projectId: draft["projectId"], date: draft["date"], amount: numberValue("amount"), mode: draft["mode"], receipt: draft["receipt"], reference: draft["reference"], collectedBy: draft["collectedBy"], status: draft["status"] }),
     };
+    return builders[module]();
   }
 
-  private normalizeApprovalStatus(value: unknown): string {
-    const normalized = String(value || "").trim().toLowerCase();
-    if (normalized === "approve" || normalized === "approved") return "Approved";
-    if (normalized === "decline" || normalized === "declined" || normalized === "rejected") return "Declined";
-    return String(value || "");
+  private updateSignal(module: EditableModule, updater: (rows: any[]) => any[]) {
+    const map = {
+      materials: this.data.materials,
+      vendors: this.data.vendors,
+      subcontract: this.data.subcontractors,
+      labours: this.data.labour,
+      supervisors: this.data.supervisors,
+      expenses: this.data.expenses,
+      payments: this.data.payments,
+    } as const;
+    if (module === "clients") return;
+    map[module].update((rows: any[]) => updater(rows));
   }
 
-  private withExpenseBalances(rows: TableRow[]): TableRow[] {
-    const balances = new Map<string, number>();
-    return [...rows].sort((first, second) => this.expenseRowSortValue(first).localeCompare(this.expenseRowSortValue(second))).map((row) => {
-      const transactionType = String(row["transactionType"] || "Site Expense");
-      const groupKey = this.expenseGroupKey(row);
-      const previousBalance = balances.get(groupKey) ?? this.expenseOpeningBalanceFor(row);
-      const balance = previousBalance + this.expenseSignedAmount(row, transactionType);
-      balances.set(groupKey, balance);
-      return {
-        ...row,
-        transactionType,
-        runningBalance: formatMoney(balance),
-      };
+  private nextId(module: EditableModule): string {
+    const prefixes: Record<EditableModule, string> = { clients: "CL", materials: "MAT", vendors: "VEN", subcontract: "SUB", labours: "LAB", supervisors: "SUP", expenses: "EXP", payments: "PAY" };
+    const source: Record<EditableModule, Array<{ id: string }>> = {
+      clients: this.data.clients(),
+      materials: this.data.materials(),
+      vendors: this.data.vendors(),
+      subcontract: this.data.subcontractors(),
+      labours: this.data.labour(),
+      supervisors: this.data.supervisors(),
+      expenses: this.data.expenses(),
+      payments: this.data.payments(),
+    };
+    const next = Math.max(0, ...source[module].map((row) => Number(row.id.replace(/\D/g, ""))).filter(Number.isFinite)) + 1;
+    return `${prefixes[module]}-${String(next).padStart(3, "0")}`;
+  }
+
+  private downloadFile(filename: string, type: string, content: string) {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  private projectById(projectId: string): Project | undefined {
+    return this.data.projectById(projectId);
+  }
+
+  private filterLabourCategory(rows: LabourRow[]): LabourRow[] {
+    const category = this.labourCategoryFilter().trim().toLowerCase();
+    if (category === "all") return rows;
+    return rows.filter((row) => row.category.toLowerCase() === category);
+  }
+
+  private filterRows<T>(rows: T[], pick: (row: T) => Array<string | number | undefined>, pickStatus?: (row: T) => string | undefined): T[] {
+    const query = this.searchText().trim().toLowerCase();
+    const status = this.statusFilter().trim().toLowerCase();
+    return rows.filter((row) => {
+      const values = pick(row).map((value) => String(value ?? "").toLowerCase());
+      const rowStatus = String(pickStatus?.(row) ?? "").toLowerCase();
+      const matchesQuery = !query || values.some((value) => value.includes(query));
+      const matchesStatus = status === "all" || rowStatus === status || (status !== "active" && rowStatus.includes(status));
+      return matchesQuery && matchesStatus;
     });
-  }
-
-  private withLabourPayable(row: TableRow): TableRow {
-    const attendance = String(row["attendance"] || "Present");
-    const labourTypes = this.cleanLabourTypeText(String(row["labourTypes"] || row["notes"] || "").trim());
-    const enteredStaffCount = this.moneyNumber(row["staffCount"]);
-    const staffCount = this.staffCountFromLabourTypes(labourTypes) || enteredStaffCount || this.moneyNumber(row["presentUnits"]) || 1;
-    return {
-      ...row,
-      staffName: row["staffName"] || row["labourName"] || "",
-      labourTypes,
-      notes: labourTypes || row["notes"] || "",
-      attendance,
-      shift: this.normalizeShift(row["shift"]),
-      staffCount,
-    };
-  }
-
-  private isExpenseCredit(transactionType: string): boolean {
-    const normalized = transactionType.toLowerCase();
-    return (
-      normalized.includes("payment") ||
-      normalized.includes("received") ||
-      normalized.includes("cash issued") ||
-      normalized.includes("cash added") ||
-      normalized.includes("refund") ||
-      normalized.includes("credit")
-    );
-  }
-
-  private siteOptionsForModule(module: DashboardModule): string[] {
-    const sites = new Set<string>();
-    for (const project of this.data.projects()) project.sites.forEach((site) => sites.add(site));
-    for (const row of this.rowsFor(module)) {
-      const site = String(row["site"] || "").trim();
-      if (site) sites.add(site);
-    }
-    return [...sites].sort((a, b) => a.localeCompare(b));
-  }
-
-  private projectNameOptions(): string[] {
-    return this.sortedUnique(this.data.projects().map((project) => project.name));
-  }
-
-  private projectIdOptions(): string[] {
-    return this.sortedUnique(this.data.projects().map((project) => project.id));
-  }
-
-  private clientNameOptions(): string[] {
-    return this.sortedUnique(this.data.clients().map((client) => client.name));
-  }
-
-  private clientIdOptions(): string[] {
-    return this.sortedUnique(this.data.clients().map((client) => client.id));
-  }
-
-  private clientAddressOptions(): string[] {
-    return this.sortedUnique(this.data.clients().map((client) => client.address));
-  }
-
-  private supervisorNameOptions(): string[] {
-    return this.sortedUnique([
-      ...this.data.supervisors().map((supervisor) => supervisor.name),
-      ...this.data.clients().map((client) => client.supervisor),
-      ...this.data.projects().map((project) => project.supervisor),
-    ]);
-  }
-
-  private staffNameOptions(): string[] {
-    const names = new Set<string>();
-    for (const row of this.rowsFor("labour")) {
-      const name = String(row["staffName"] || row["labourName"] || "").trim();
-      if (name) names.add(name);
-    }
-    ["Velu Mason Party", "Ganesh Plumbing", "Selvam Civil Works", "Balu Helper Team"].forEach((name) => names.add(name));
-    return [...names].sort((a, b) => a.localeCompare(b));
-  }
-
-  private sortedUnique(values: Array<string | null | undefined>): string[] {
-    return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  }
-
-  private materialPurchaseSummaryForVendor(vendorName: string): string {
-    const rows = this.data.materials().filter((row) => row.vendor.toLowerCase() === vendorName.toLowerCase());
-    const purchased = rows.reduce((sum, row) => sum + row.purchased, 0);
-    return rows.length ? `${formatNumber(rows.length)} records / ${formatNumber(purchased)} purchased` : "0 records";
-  }
-
-  private vendorNameOptions(): string[] {
-    return this.sortedUnique([
-      ...this.data.vendors().map((vendor) => vendor.name),
-      ...this.data.materials().map((material) => material.vendor),
-      ...this.rowsFor("materials").map((row) => String(row["vendor"] || "")),
-    ]);
-  }
-
-  private labourTypesFromRow(row: { category: string; notes: string; presentCount: number; dailyWage?: number }): string {
-    const notes = row.notes.trim();
-    if (this.staffCountFromLabourTypes(notes)) return notes;
-    return `${row.category}: ${row.presentCount}`;
-  }
-
-  private normalizeShift(value: unknown): string {
-    const text = String(value ?? "").trim();
-    if (!text) return "1";
-    if (text.toLowerCase().includes("night")) return "2";
-    if (text.toLowerCase().includes("day")) return "1";
-    const shift = this.moneyNumber(text);
-    return shift ? String(shift) : "1";
-  }
-
-  private staffCountFromLabourTypes(value: string): number {
-    return value
-      .split(/[,;\n]+/)
-      .map((part) => {
-        const match = part.trim().match(/(?:[:x-])\s*(\d+(?:\.\d+)?)/i) ?? part.trim().match(/(\d+(?:\.\d+)?)/);
-        return match ? Number(match[1]) : 0;
-      })
-      .filter((count) => Number.isFinite(count))
-      .reduce((sum, count) => sum + count, 0);
-  }
-
-  private mergeLabourType(currentValue: string, labourType: string, count: number, dailyWage = 0): string {
-    const entries = new Map<string, { count: number; wage: number }>();
-    for (const part of currentValue.split(/[,;\n]+/)) {
-      const entry = this.parseLabourTypeEntrySafe(part);
-      if (entry) entries.set(entry.type, { count: entry.count, wage: entry.wage });
-    }
-    const existingKey = [...entries.keys()].find((key) => key.toLowerCase() === labourType.toLowerCase());
-    const existing = existingKey ? entries.get(existingKey) : undefined;
-    entries.set(existingKey ?? labourType, { count, wage: dailyWage || existing?.wage || 0 });
-    return [...entries.entries()]
-      .map(([type, value]) => `${type}: ${value.count}`)
-      .join(", ");
-  }
-
-  private cleanLabourTypeText(value: string): string {
-    const entries = value
-      .split(/[,;\n]+/)
-      .map((part) => this.parseLabourTypeEntrySafe(part))
-      .filter((entry): entry is { type: string; count: number; wage: number } => Boolean(entry));
-    return entries.length ? entries.map((entry) => `${entry.type}: ${entry.count}`).join(", ") : value;
-  }
-
-  private parseLabourTypeEntrySafe(value: string): { type: string; count: number; wage: number } | null {
-    const text = value.trim();
-    if (!text) return null;
-    const countMatch = text.match(/^(.+?)(?:[:x-])\s*(\d+(?:\.\d+)?)/i);
-    if (!countMatch) return null;
-    const wageMatch = text.match(/(?:@|wage\s*[:=-]?)\s*(?:[^\d-]*)?([\d,]+(?:\.\d+)?)/i);
-    return {
-      type: countMatch[1].trim(),
-      count: Number(countMatch[2]),
-      wage: wageMatch ? this.moneyNumber(wageMatch[1]) : 0,
-    };
-  }
-
-  private parseLabourTypeEntry(value: string): { type: string; count: number; wage: number } | null {
-    const text = value.trim();
-    if (!text) return null;
-    const countMatch = text.match(/^(.+?)(?:[:x-])\s*(\d+(?:\.\d+)?)/i);
-    if (!countMatch) return null;
-    const wageMatch = text.match(/(?:@|wage\s*[:=-]?)\s*(?:₹|rs\.?)?\s*([\d,]+(?:\.\d+)?)/i);
-    return {
-      type: countMatch[1].trim(),
-      count: Number(countMatch[2]),
-      wage: wageMatch ? this.moneyNumber(wageMatch[1]) : 0,
-    };
-  }
-
-  private ensureLabourWageField(labourType: string): FieldSchema {
-    const label = `${this.titleCase(labourType)} Daily Wage`;
-    const existing = this.data.customFieldsFor("labour").find((field) => field.label.toLowerCase() === label.toLowerCase());
-    return existing ?? this.data.addCustomField("labour", label, this.columnsForModule("labour"));
-  }
-
-  private columnsForModule(module: DashboardModule): FieldSchema[] {
-    const base = dashboardModules.find((config) => config.key === module)?.columns ?? [];
-    return [...base, ...this.data.customFieldsFor(module)];
-  }
-
-  private titleCase(value: string): string {
-    return value
-      .trim()
-      .split(/\s+/)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-      .join(" ");
-  }
-
-  private expenseGroupKey(row: TableRow): string {
-    const projectId = String(row["projectId"] || row["__projectId"] || row["project"] || "project");
-    const site = String(row["site"] || "Project").trim().toLowerCase();
-    return `${projectId}::${site}`;
-  }
-
-  private expenseRowSortValue(row: TableRow): string {
-    const date = String(row["expenseDate"] || row["date"] || "");
-    return `${this.expenseGroupKey(row)}::${date}::${row["__rowId"] || ""}`;
-  }
-
-  private expenseOpeningBalanceFor(row: TableRow, allowProjectFallback = true): number {
-    const explicitProjectId = String(row["projectId"] || row["__projectId"] || "");
-    const site = String(row["site"] || "Project");
-    const savedOpening = explicitProjectId ? this.data.expenseOpeningBalanceFor(explicitProjectId, site) : undefined;
-    if (savedOpening !== undefined) return savedOpening;
-    const explicitOpening = this.explicitExpenseOpeningForGroup(explicitProjectId, String(row["project"] || ""), String(row["site"] || ""));
-    if (explicitOpening) return explicitOpening;
-    const project =
-      this.data.projectById(explicitProjectId) ??
-      this.data.projects().find((projectRow) => projectRow.name === row["project"] || projectRow.id === row["project"]);
-    if (!allowProjectFallback || !this.isPrimaryExpenseSite(project, site)) return 0;
-    return project?.expenseBalance ?? 0;
-  }
-
-  private expenseSignedAmount(row: TableRow, transactionType = String(row["transactionType"] || "")): number {
-    const amountText = String(row["amount"] ?? "").trim();
-    const amount = this.moneyNumber(amountText);
-    if (!amount) return 0;
-    if (amountText.startsWith("+") || amountText.startsWith("-")) return amount;
-    return this.isExpenseCredit(transactionType) ? Math.abs(amount) : -Math.abs(amount);
-  }
-
-  private explicitExpenseOpeningForGroup(projectId: string, projectName: string, site: string): number {
-    const normalizedSite = site.trim().toLowerCase();
-    if (!normalizedSite) return 0;
-    const rows = this.rowsFor("expenses");
-    const match = rows.find((row) => {
-      const rowProjectId = String(row["projectId"] || row["__projectId"] || "");
-      const rowProjectName = String(row["project"] || "");
-      const rowSite = String(row["site"] || "").trim().toLowerCase();
-      const sameProject = projectId ? rowProjectId === projectId : rowProjectName === projectName;
-      return sameProject && rowSite === normalizedSite && this.moneyNumber(row["openingBalance"]);
-    });
-    return match ? this.moneyNumber(match["openingBalance"]) : 0;
-  }
-
-  private isPrimaryExpenseSite(project: { sites: string[] } | undefined, site: string): boolean {
-    const normalizedSite = site.trim().toLowerCase();
-    const primarySite = String(project?.sites[0] || "").trim().toLowerCase();
-    return !normalizedSite || normalizedSite === "project" || (!!primarySite && normalizedSite === primarySite);
-  }
-
-  private reportColumns(module: DashboardModule): FieldSchema[] {
-    if (module === "expenses") {
-      return [
-        { key: "expenseDate", label: "Date" },
-        { key: "transactionType", label: "Transaction Type" },
-        { key: "description", label: "Description" },
-        { key: "amount", label: "Amount" },
-        { key: "runningBalance", label: "Balance" },
-      ];
-    }
-    if (module === "labour") {
-      const wageFields = this.data.customFieldsFor("labour").filter((field) => this.isLabourWageField(field));
-      return [
-        { key: "attendanceDate", label: "Date" },
-        { key: "staffName", label: "Staff Name" },
-        { key: "labourTypes", label: "Labour Types" },
-        ...wageFields,
-        { key: "staffCount", label: "Staff Count" },
-        { key: "attendance", label: "Attendance" },
-        { key: "shift", label: "Shift" },
-        { key: "overtimeLate", label: "Overtime / Late" },
-        { key: "weeklyPayByType", label: "Weekly Pay by Labour Type" },
-        { key: "weeklyPayTotal", label: "Combined Weekly Pay" },
-      ];
-    }
-    return this.columnsForActive();
-  }
-
-  private reportRows(module: DashboardModule, rows: TableRow[]): TableRow[] {
-    if (module !== "labour") return rows;
-    return rows.map((row) => {
-      const weeklyPay = this.labourWeeklyPayForRow(row);
-      return {
-        ...row,
-        overtimeLate: `${row["overtime"] || "0"} overtime / ${row["lateFine"] || "0"} late fine`,
-        weeklyPayByType: weeklyPay.breakup,
-        weeklyPayTotal: formatMoney(weeklyPay.total),
-      };
-    });
-  }
-
-  private labourWeeklyPayForRow(row: TableRow): { breakup: string; total: number; items: Array<{ type: string; count: number; wage: number; amount: number }> } {
-    if (String(row["attendance"] || "").toLowerCase() === "absent") return { breakup: "Absent", total: 0, items: [] };
-    const entries = this.labourTypeEntriesForRow(row);
-    const shift = this.moneyNumber(row["shift"]) || 1;
-    const items = entries.map((entry) => {
-      const amount = entry.count * entry.wage * shift;
-      return { ...entry, amount };
-    });
-    const total = items.reduce((sum, item) => sum + item.amount, 0);
-    return {
-      breakup: items.length ? items.map((item) => `${item.type}: ${formatMoney(item.amount)}`).join(", ") : formatMoney(0),
-      total,
-      items,
-    };
-  }
-
-  private labourTypeEntriesForRow(row: TableRow): Array<{ type: string; count: number; wage: number }> {
-    const labourTypes = String(row["labourTypes"] || row["notes"] || "").trim();
-    const parsed = labourTypes
-      .split(/[,;\n]+/)
-      .map((part) => this.parseLabourTypeEntrySafe(part))
-      .filter((entry): entry is { type: string; count: number; wage: number } => Boolean(entry));
-    const entries = parsed.length
-      ? parsed
-      : [{ type: "Labour", count: this.moneyNumber(row["staffCount"]) || this.moneyNumber(row["presentUnits"]) || 0, wage: 0 }];
-    return entries.map((entry) => ({
-      type: entry.type,
-      count: entry.count,
-      wage: this.dailyWageForLabourType(row, entry.type, entries.length) || entry.wage,
-    }));
-  }
-
-  private labourTypeOptionsForRow(row: TableRow): string[] {
-    const projectId = String(row["projectId"] || row["__projectId"] || "");
-    const options = new Set<string>();
-    for (const entry of this.rowsFor("labour")) {
-      if (projectId && String(entry["projectId"] || entry["__projectId"] || "") !== projectId) continue;
-      for (const type of this.labourTypeEntriesForRow(entry)) {
-        options.add(type.type);
-      }
-    }
-    return [...options].sort((a, b) => a.localeCompare(b));
-  }
-
-  private dailyWageForLabourType(row: TableRow, labourType: string, typeCount: number): number {
-    const suggestedWage = this.suggestedDailyWageForLabourType(row, labourType);
-    if (suggestedWage) return suggestedWage;
-    const rowWage = this.moneyNumber(row["dailyWage"]);
-    if (rowWage) return rowWage;
-    return typeCount === 1 ? this.moneyNumber(row["weeklyPayable"]) : 0;
-  }
-
-  private suggestedDailyWageForLabourType(row: TableRow, labourType: string): number {
-    const label = `${this.titleCase(labourType)} Daily Wage`.toLowerCase();
-    const generatedKey = label.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-    const field = this.data.customFieldsFor("labour").find((candidate) => candidate.label.toLowerCase() === label);
-    const wage = this.moneyNumber(row[field?.key ?? generatedKey]) || this.moneyNumber(row[generatedKey]);
-    if (wage) return wage;
-    return this.historicalDailyWageForLabourType(row, labourType);
-  }
-
-  private historicalDailyWageForLabourType(row: TableRow, labourType: string): number {
-    const rowId = String(row["__rowId"] || "");
-    const normalizedType = labourType.toLowerCase();
-    const projectId = String(row["projectId"] || row["__projectId"] || "");
-    const wageField = this.data.customFieldsFor("labour").find((field) => field.label.toLowerCase() === `${this.titleCase(labourType)} daily wage`.toLowerCase());
-    for (const candidate of this.rowsFor("labour")) {
-      if (String(candidate["__rowId"] || "") === rowId) continue;
-      if (projectId && String(candidate["projectId"] || candidate["__projectId"] || "") !== projectId) continue;
-      const hasType = String(candidate["labourTypes"] || candidate["notes"] || "")
-        .split(/[,;\n]+/)
-        .map((part) => this.parseLabourTypeEntrySafe(part))
-        .some((entry) => entry?.type.toLowerCase() === normalizedType);
-      if (!hasType) continue;
-      const generatedKey = `${this.titleCase(labourType)} Daily Wage`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-      const wage = this.moneyNumber(candidate[wageField?.key ?? generatedKey]) || this.moneyNumber(candidate[generatedKey]) || this.moneyNumber(candidate["dailyWage"]);
-      if (wage) return wage;
-    }
-    return 0;
-  }
-
-  private labourSummaryHtml(rows: TableRow[]): string {
-    const staffSummary = new Map<string, { present: number; absent: number; staff: number }>();
-    const wageSummary = new Map<string, { staff: number; payable: number }>();
-    for (const row of rows) {
-      const name = String(row["staffName"] || row["labourName"] || "Unnamed");
-      const current = staffSummary.get(name) ?? { present: 0, absent: 0, staff: 0 };
-      const isAbsent = String(row["attendance"] || "").toLowerCase() === "absent";
-      if (isAbsent) current.absent += 1;
-      else current.present += 1;
-      const staffCount = this.moneyNumber(row["staffCount"]) || this.staffCountFromLabourTypes(String(row["labourTypes"] || ""));
-      if (!isAbsent) current.staff += staffCount;
-      staffSummary.set(name, current);
-
-      const weeklyPay = this.labourWeeklyPayForRow(row);
-      for (const item of weeklyPay.items) {
-        const summary = wageSummary.get(item.type) ?? { staff: 0, payable: 0 };
-        summary.staff += item.count;
-        summary.payable += item.amount;
-        wageSummary.set(item.type, summary);
-      }
-    }
-    if (!staffSummary.size && !wageSummary.size) return "";
-    const combinedPayable = [...wageSummary.values()].reduce((sum, value) => sum + value.payable, 0);
-    const wageHtml = wageSummary.size
-      ? `<h2>Labour Wage Summary</h2>${[...wageSummary.entries()]
-          .map(
-            ([type, value]) =>
-              `<div><strong>${this.escapeHtml(type)}</strong><span>Staff units: ${value.staff}</span><span>Weekly pay: ${this.escapeHtml(formatMoney(value.payable))}</span></div>`,
-          )
-          .join("")}<div><strong>Combined Payable</strong><span>${this.escapeHtml(formatMoney(combinedPayable))}</span></div>`
-      : "";
-    const staffHtml = [...staffSummary.entries()]
-      .map(
-        ([name, value]) =>
-          `<div><strong>${this.escapeHtml(name)}</strong><span>Present: ${value.present}</span><span>Absent: ${value.absent}</span><span>Staff: ${value.staff}</span></div>`,
-      )
-      .join("");
-    return `<section class="summary">${wageHtml}<h2>Attendance Summary</h2>${staffHtml}</section>`;
-  }
-
-  private expenseSummaryHtml(rows: TableRow[]): string {
-    const openingByGroup = new Map<string, number>();
-    const closingByGroup = new Map<string, number>();
-    const spent = rows.reduce((sum, row) => {
-      const key = this.expenseGroupKey(row);
-      if (!openingByGroup.has(key)) {
-        openingByGroup.set(key, this.expenseOpeningBalanceFor(row, Boolean(this.selectedFilters()["project"] && this.selectedFilters()["site"])));
-      }
-      closingByGroup.set(key, this.moneyNumber(row["runningBalance"]));
-      const amount = this.expenseSignedAmount(row);
-      return amount < 0 ? sum + Math.abs(amount) : sum;
-    }, 0);
-    const received = rows.reduce((sum, row) => {
-      const amount = this.expenseSignedAmount(row);
-      return amount > 0 ? sum + amount : sum;
-    }, [...openingByGroup.values()].reduce((sum, amount) => sum + amount, 0));
-    const closing = formatMoney([...closingByGroup.values()].reduce((sum, amount) => sum + amount, 0));
-    return `<section class="summary"><h2>Expense Summary</h2><div><strong>Opening / Received</strong><span>${this.escapeHtml(formatMoney(received))}</span></div><div><strong>Expenses</strong><span>${this.escapeHtml(formatMoney(spent))}</span></div><div><strong>Closing Balance</strong><span>${this.escapeHtml(closing)}</span></div></section>`;
-  }
-
-  private openPrintableReport(config: { title: string; subtitle: string; columns: FieldSchema[]; rows: TableRow[]; summary: string }) {
-    const reportWindow = window.open("", "_blank");
-    if (!reportWindow) return;
-    const tableRows = config.rows
-      .map((row) => `<tr>${config.columns.map((column) => `<td>${this.escapeHtml(String(row[column.key] ?? ""))}</td>`).join("")}</tr>`)
-      .join("");
-    reportWindow.document.write(`<!doctype html>
-<html>
-<head>
-  <title>${this.escapeHtml(config.title)}</title>
-  <style>
-    body { margin: 32px; color: #111827; font-family: Inter, Arial, sans-serif; }
-    header { display: flex; justify-content: space-between; gap: 24px; padding-bottom: 18px; border-bottom: 2px solid #002263; }
-    h1 { margin: 0 0 6px; font-size: 24px; }
-    p { margin: 0; color: #526070; font-size: 13px; }
-    table { width: 100%; margin-top: 22px; border-collapse: collapse; font-size: 12px; }
-    th, td { padding: 9px 10px; border: 1px solid #cfd8e6; text-align: left; vertical-align: top; }
-    th { background: #eef4ff; color: #002263; font-weight: 800; }
-    .summary { display: grid; gap: 8px; margin-top: 18px; padding: 14px; border: 1px solid #cfd8e6; background: #f8fafc; }
-    .summary h2 { margin: 0 0 4px; font-size: 16px; }
-    .summary div { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid #e4e9f1; padding-bottom: 6px; }
-    .summary div:last-child { border-bottom: 0; padding-bottom: 0; }
-    footer { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; margin-top: 48px; font-size: 12px; }
-    footer div { padding-top: 34px; border-top: 1px solid #94a3b8; text-align: center; color: #526070; }
-    .print-action { margin-top: 18px; border: 0; border-radius: 8px; background: #002263; color: #fff; padding: 10px 14px; font-weight: 800; }
-    @media print { body { margin: 18mm; } button { display: none; } }
-  </style>
-</head>
-<body>
-  <header>
-    <div><h1>${this.escapeHtml(config.title)}</h1><p>${this.escapeHtml(config.subtitle)}</p></div>
-    <p>Generated ${new Date().toLocaleDateString()}</p>
-  </header>
-  <table>
-    <thead><tr>${config.columns.map((column) => `<th>${this.escapeHtml(column.label)}</th>`).join("")}</tr></thead>
-    <tbody>${tableRows || `<tr><td colspan="${config.columns.length}">No records</td></tr>`}</tbody>
-  </table>
-  ${config.summary}
-  <button class="print-action" onclick="window.print()">Print / Save PDF</button>
-  <footer><div>Prepared By</div><div>Verified By</div><div>Approved / Stamp</div></footer>
-</body>
-</html>`);
-    reportWindow.document.close();
-  }
-
-  private countFromNotes(notes: string, label: string): number {
-    const match = notes.match(new RegExp(`${label}\\s*[-:]\\s*(\\d+)`, "i"));
-    return match ? Number(match[1]) : 0;
-  }
-
-  private moneyNumber(value: unknown): number {
-    const parsed = Number(String(value ?? "").replace(/,/g, "").replace(/[^\d.-]/g, ""));
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-
-  private updateClientCell(row: TableRow, key: string, value: string) {
-    const clientId = String(row["clientId"] || "");
-    if (!clientId) return;
-
-    if (key === "clientName") this.data.updateClient(clientId, { name: value || "Unnamed Client" });
-    if (key === "mobile") this.data.updateClient(clientId, { mobile: value });
-    if (key === "address") this.data.updateClient(clientId, { address: value });
-    if (key === "supervisor") this.data.updateClient(clientId, { supervisor: value || "Unassigned" });
-    if (key === "status") this.data.updateClient(clientId, { status: this.normalizeClientStatus(value) });
-  }
-
-  private normalizeClientStatus(value: string) {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === "completed") return "Completed";
-    if (normalized === "on hold" || normalized === "hold") return "On Hold";
-    return "Active";
-  }
-
-  private escapeHtml(value: string): string {
-    return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 }
